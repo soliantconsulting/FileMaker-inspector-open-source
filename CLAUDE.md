@@ -15,6 +15,27 @@ The Clockwork Inspector rewrite is complete: the fm CLI inspector is the product
 - `npm run record -- --file=... --username=admin --out=tests/fixtures/ooe`: re-record the ooe fixture, after ooe changes or a new fm build.
 - Read-only probes against the reference solution: `fm --file=fmnet://localhost/ooe --username=admin --keychain --no-prompt --abort-on-error=false --out=<out> <ops.ndjson>`. Only read-only ops, ever: `read:*`, plus `evaluate:calculation` and `validate:calculation` (fm's help guarantees they never change the file).
 
+## Pull requests: never target the fork parent
+
+This repo is a GitHub **fork** of `andykear/FileMaker-XML-inspector-open-source`, which is still
+wired up as the `upstream` remote. GitHub defaults a fork's PR base to the **parent's** default
+branch, so a PR opened without an explicit base lands in andykear's repo. **Never open one there.**
+Always target `soliantconsulting/FileMaker-inspector-open-source : main`:
+
+- by URL: `https://github.com/soliantconsulting/FileMaker-inspector-open-source/compare/main...<branch>`
+- with `gh`: always pass `--repo soliantconsulting/FileMaker-inspector-open-source --base main`
+
+It has happened twice. The two projects diverged completely — this one is the fm CLI rewrite,
+andykear's is the original single-file Save as XML tool — so such a PR reports the whole rewrite
+(159 commits) as conflicting with files this lineage retired, `clockwork-inspector.html` among them,
+which is not on `main` here at all.
+
+A cross-fork PR **cannot be redirected after creation**: GitHub allows changing a PR's base *branch*
+but not its base *repository*. Close it in the parent repo and open a fresh one here. Never click
+"Resolve conflicts" on one — that reconciles the rewrite against the pre-rewrite project. Note also
+that such a PR lives in the *base* repo, so its URL is andykear's; looking for it under this repo
+404s, because GitHub redirects a missing `/pull/N` to `/issues/N`.
+
 ## Layout
 
 - `bin/` — the entry point: parses args, locates fm, starts the server.
