@@ -26,6 +26,7 @@ import { FIELD_GROUPS, fieldsOf, tableCounts } from '../tabs/tables.js';
 import { scriptStats } from '../tabs/scripts.js';
 import { relationRows } from '../tabs/graph.js';
 import { accountRows, passwordState, securityTotals } from '../tabs/security.js';
+import { FILE_OPTIONS_GROUPS } from '../tabs/solution.js';
 import { GAP_LISTS } from '../analysis/gaps-lists.js';
 import { unreferenced } from '../analysis/unreferenced.js';
 import { PROBLEM_KIND, broken } from '../analysis/broken.js';
@@ -85,6 +86,57 @@ function headlineCounts(solution) {
   }
   const align = HEADLINE.map((_, i) => (i ? 'r' : 'l')).join('');
   return mdTable(HEADLINE, rows, { align, empty: 'No file was read.' });
+}
+
+// ── File Options ──────────────────────────────────────────────────────
+
+/** File Options, one block per file. The labels are the Solution tab's, so the
+ *  report and the page name the same setting the same way; the values are read
+ *  straight off the block because fm sends no password and no image bytes. */
+function fileOptions(solution) {
+  const parts = [];
+  for (const file of filesOf(solution)) {
+    const slot = get(file, 'fileOptions') ?? {};
+    const error = get(slot, 'error');
+    const block = get(slot, 'block');
+    parts.push(`### ${mdCell(nameOf(file))}\n`);
+    if (error) {
+      parts.push(`\`${mdCell(get(error, 'code'))}\`: ${mdCell(get(error, 'message'))}\n`);
+      continue;
+    }
+    if (!block) {
+      parts.push('Not read.\n');
+      continue;
+    }
+    const yesNo = (v) => (typeof v === 'boolean' ? (v ? 'yes' : 'no') : v);
+    // The label list and grouping come from the Solution tab (FILE_OPTIONS_GROUPS),
+    // so the report and the page name the same setting the same way. The report
+    // renders values its own way: yes/no for booleans, 'none' for empty layout,
+    // text for everything else (no links).
+    const mdValue = (at, value) => {
+      if (value === undefined || value === null) return '';
+      if (typeof value === 'boolean') return value ? 'yes' : 'no';
+      if (at === 'minimumVersion') return path(value, 'version') ?? '';
+      if (at === 'layout') {
+        const name = get(value, 'name');
+        return name === undefined || name === null ? 'none' : String(name);
+      }
+      if (at === 'icon') {
+        const parts = [get(value, 'type'), get(value, 'scale')].filter((p) => p !== undefined && p !== null);
+        if (get(value, 'hasImage') === true) parts.push('has an image');
+        return parts.length ? parts.join(', ') : '';
+      }
+      return String(value);
+    };
+    const rows = FILE_OPTIONS_GROUPS.flatMap(([groupTitle, entries]) =>
+      entries.map(([label, at]) => [label, mdValue(at, path(block, at))])
+    );
+    parts.push(mdTable(['Setting', 'Value'], rows, { align: 'll' }));
+    // fm reports all six events always; an empty script means no script runs on this event.
+    const triggers = (get(block, 'triggers') ?? []).map((t) => [get(t, 'event'), get(t, 'script') || 'none']);
+    parts.push(`\n**Script triggers**\n\n${mdTable(['Event', 'Script'], triggers, { align: 'll' })}`);
+  }
+  return parts.join('\n');
 }
 
 // ── Confidence ────────────────────────────────────────────────────────
@@ -224,8 +276,9 @@ function brokenSection(solution) {
     ['Broken references', rows.length - problems.length],
     ['fm problem steps', problems.length],
   ], { align: 'lr' })
-    + '\nA broken reference is a `<Word Missing>` marker fm wrote, an occurrence whose base table did not'
-    + ' resolve, or a named reference that resolves to nothing. An fm problem step is an entry of fm\'s own'
+    + '\nA broken reference is a `<Word Missing>` marker fm wrote, a reference fm reports by raw key'
+    + ' because the name no longer resolves, an occurrence whose base table did not resolve, or a named'
+    + ' reference that resolves to nothing. An fm problem step is an entry of fm\'s own'
     + ' `script.problems[]`: its report about its own rendering of a step, not a finding about the file.\n';
   const byKind = mdTable(['Kind', 'Count'], tally(rows, (r) => r.kind), { align: 'lr', empty: 'Nothing is broken.' });
   const perScript = mdTable(['File', 'Script', 'Problems'],
@@ -263,12 +316,13 @@ function gaps(solution) {
 
 /** The H2 headings, in order. Exported so a test (and a reader) has the list in
  *  one place rather than reading it out of the output. */
-export const SECTIONS = ['Headline counts', 'Confidence', 'Security observations', 'Unreferenced',
+export const SECTIONS = ['Headline counts', 'File Options', 'Confidence', 'Security observations', 'Unreferenced',
   'Script body observations', 'Calculation fields', 'Relationships', 'Container fields',
   'Broken references', 'Gaps'];
 
 const BODY = {
   'Headline counts': headlineCounts,
+  'File Options': fileOptions,
   Confidence: confidence,
   'Security observations': security,
   Unreferenced: unreferencedSection,

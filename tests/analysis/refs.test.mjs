@@ -89,7 +89,7 @@ test('references finds the named script reference of a Perform Script step', () 
   const hit = rows.find((r) => r.kind === 'script' && r.name === 'noop' && r.how === 'named' && r.from.kind === 'script');
   assert.ok(hit, 'a named script reference to noop from a script step');
   assert.equal(hit.resolved, true);
-  assert.match(hit.from.where, /^body\[\d+\]\.script$/);
+  assert.match(hit.from.where, /^body\.\d+\.script$/);
 });
 
 test('references finds a named field reference from a layout object', () => {
@@ -117,28 +117,63 @@ test('references is memoised on the solution object', () => {
   assert.equal(references(solution), references(solution));
 });
 
-// ── Pinned against the ooe fixture (fm 0.7.0, recorded 2026-09-16) ────
+// ── Pinned against the ooe fixture (fm 0.8.0-beta.0, re-recorded 2026-09-21) ────
 // Every number below was printed from the fixture before it was written here.
 
 test('the reference counts by kind on the fixture', () => {
   const rows = references(solution);
   const byKind = {};
   for (const r of rows) byKind[r.kind] = (byKind[r.kind] ?? 0) + 1;
+  // Re-measured after 0.8.0 re-record: structured option keys (findRequests,
+  // sortOrder, exportOptions, importOptions) expose field names the 0.7.0
+  // recording did not carry, so field and variable references increase.
+  // Re-measured after Task 5 (File Options as reference source): layout +2
+  // (both files name a startup layout), script +6 (ooe's six file triggers all
+  // run `noop`; BrojDva's triggers are all empty so emit() drops them).
+  // Re-measured after Task 5b: occurrence +1 (targetTable names the import's
+  // target occurrence in the fixture's one Import Records step).
   assert.deepEqual(byKind, {
-    variable: 1220, field: 919, occurrence: 314, script: 64, table: 35,
-    layout: 16, valueList: 14, style: 7, customFunction: 3,
+    variable: 1257, field: 933, occurrence: 315, script: 70, table: 35,
+    layout: 18, valueList: 14, style: 7, customFunction: 3,
   });
-  assert.equal(rows.length, 2592);
+  assert.equal(rows.length, 2652);
 });
 
 test('the reference counts by how, and by the kind of object doing the naming', () => {
   const rows = references(solution);
   const tally = (f) => rows.reduce((o, r) => ({ ...o, [f(r)]: (o[f(r)] ?? 0) + 1 }), {});
-  assert.deepEqual(tally((r) => r.how), { text: 1601, named: 991 });
+  // Re-measured after 0.8.0 re-record: new field references from option keys.
+  // Re-measured after Task 5: named +8 (File Options names the startup layout
+  // and trigger scripts under keys fm documents), fileOptions +8 (new source).
+  // Re-measured after Task 5b: named +2 (orderBy was tokenized as text, now named;
+  // targetTable is new), text -1 (orderBy moved from text to named).
+  assert.deepEqual(tally((r) => r.how), { text: 1633, named: 1019 });
+  // Re-measured after Task 5b: script +1 (targetTable is a step option of Import Records).
   assert.deepEqual(tally((r) => r.from.kind), {
-    script: 1925, layoutObject: 401, field: 119, layout: 51, relation: 42,
-    tableOccurrence: 27, valueList: 17, customMenu: 8, customFunction: 2,
+    script: 1977, layoutObject: 401, field: 119, layout: 51, relation: 42,
+    tableOccurrence: 27, valueList: 17, fileOptions: 8, customMenu: 8, customFunction: 2,
   });
+});
+
+test('references() does not tokenise fm\'s opaque round-trip blobs', async () => {
+  // fm 0.8.0 reports printOptions.preserved[].data and pageSetup.preserved[].data as
+  // hex-encoded plists of the platform's print settings -- 1.2MB of them on ooe, up to
+  // 52KB in one string. FIELD_RE is NAME_CHARS::NAME_CHARS and every hex digit is a
+  // valid name character, so a delimiter-free run makes it quadratic: measured, 16k
+  // chars of hex costs 788ms against 9ms for the same length with delimiters. Left
+  // alone it took references() from under a second to 105 SECONDS, and the page
+  // computes this live.
+  //
+  // A generous budget, not a benchmark: it is here to fail loudly if a future build
+  // adds another blob under another key, which is exactly how this one arrived.
+  const api = createReplayApi(FIXTURE);
+  const freshSolution = await discover(api, api.meta.root);
+  const started = Date.now();
+  const refs = references(freshSolution);
+  const ms = Date.now() - started;
+  assert.ok(ms < 10_000, `references() took ${ms}ms; a blob is being tokenised again`);
+  // No blob contributes a reference, so nothing is reported from inside one.
+  assert.deepEqual(refs.filter((r) => /(^|\.)preserved\b/.test(r.from.where)), []);
 });
 
 test('the name index sizes on the fixture', () => {
@@ -174,7 +209,8 @@ test('the only named reference on the fixture that resolves to nothing is the Ap
 test('every layout, value list, field and occurrence the fixture names does resolve', () => {
   const rows = references(solution);
   const named = (kind) => [...new Set(rows.filter((r) => r.kind === kind && r.how === 'named').map((r) => `${r.name}|${r.resolved}`))].sort();
-  assert.deepEqual(named('layout'), ['Contacts|true', 'File Open|true', 'My Layout for TestTable|true', 'SaXMLDeliveryExecutionContext|true']);
+  // Re-measured after Task 5: Ooe2 is BrojDva's startup layout, named by its File Options.
+  assert.deepEqual(named('layout'), ['Contacts|true', 'File Open|true', 'My Layout for TestTable|true', 'Ooe2|true', 'SaXMLDeliveryExecutionContext|true']);
   // The external lists fm writes as `Self::MyRelatedValueList` / `BrojDva::VL`
   // resolve on the half after `::`, which is the list's own name.
   assert.deepEqual(named('valueList'), ['1|true', 'MyRelatedValueList|true', 'TestTable | TextField1|true', 'VL|true', 'YN|true']);
@@ -192,7 +228,8 @@ test('script references come from steps, layout triggers, button actions and men
   const rows = references(solution).filter((r) => r.kind === 'script');
   const byFrom = {};
   for (const r of rows) byFrom[r.from.kind] = (byFrom[r.from.kind] ?? 0) + 1;
-  assert.deepEqual(byFrom, { script: 32, layout: 25, layoutObject: 5, customMenu: 2 });
+  // Re-measured after Task 5: fileOptions +6 (ooe's six file triggers all run `noop`).
+  assert.deepEqual(byFrom, { script: 32, layout: 25, fileOptions: 6, layoutObject: 5, customMenu: 2 });
   assert.ok(rows.some((r) => r.from.kind === 'layout' && r.from.where.startsWith('scriptTriggers.')));
   assert.ok(rows.some((r) => r.from.kind === 'customMenu' && r.from.where.includes('.action.script')));
   assert.ok(rows.some((r) => r.from.kind === 'layoutObject' && r.from.where.includes('.action.script')));
@@ -248,7 +285,7 @@ test('a Perform Script naming a script that is not there resolves to false', () 
     },
   });
   const hit = references(sol).find((r) => r.kind === 'script');
-  assert.deepEqual({ name: hit.name, resolved: hit.resolved, how: hit.how, where: hit.from.where }, { name: 'gone', resolved: false, how: 'named', where: 'body[0].script' });
+  assert.deepEqual({ name: hit.name, resolved: hit.resolved, how: hit.how, where: hit.from.where }, { name: 'gone', resolved: false, how: 'named', where: 'body.0.script' });
 });
 
 test('a field token resolves only when the occurrence exists and its base table has the field', () => {
@@ -349,7 +386,7 @@ test('a table is named by the occurrence that declares it and by a step, never b
 });
 
 test('a step `from` is an occurrence only when the index has that name', () => {
-  const rows = references(solution).filter((r) => /^body\[\d+\]\.from$/.test(r.from.where));
+  const rows = references(solution).filter((r) => /^body\.\d+\.from$/.test(r.from.where));
   // 21 Go to Related Record steps; the 40 `camera`/`file`/`target` words on
   // Insert from Device, Open PDF and Append PDF name nothing.
   assert.equal(rows.length, 21);
@@ -364,7 +401,7 @@ test("every reference whose owner is a script step carries fm's step TYPE id", (
   assert.ok(fromSteps.every((r) => Number.isInteger(r.from.stepID)));
   assert.ok(rows.filter((r) => r.from.kind !== 'script').every((r) => r.from.stepID === undefined));
   // It is the TYPE, not the step: one id repeats across a body, so it can never
-  // be an anchor. The anchor is the `body[<index>]` of `where`, + 1.
+  // be an anchor. The anchor is the `body.<index>` of `where`, + 1.
   const ids = fromSteps.map((r) => r.from.stepID);
   assert.ok(new Set(ids).size < ids.length);
 });
@@ -461,4 +498,92 @@ test('the memo keys on the catalog slots, not on the solution object', () => {
   const second = references(one);
   assert.notEqual(second, first);
   assert.equal(second.length, 0, 'the replaced slot is empty, so nothing names anything');
+});
+
+test('File Options names the startup layout and every file trigger script', () => {
+  const refs = references(solution).filter((r) => r.from.kind === 'fileOptions' && r.from.target === ROOT);
+  const layouts = refs.filter((r) => r.kind === 'layout');
+  const scripts = refs.filter((r) => r.kind === 'script');
+  // Measured against the fixture before pinning: ooe opens on File Open and
+  // has six file script triggers, all running `noop`.
+  assert.equal(layouts.length, 1);
+  assert.equal(layouts[0].name, 'File Open');
+  assert.equal(layouts[0].how, 'named', 'fm reports it under a key it documents');
+  assert.equal(layouts[0].resolved, true);
+  assert.equal(layouts[0].from.id, 'fileOptions');
+  assert.equal(layouts[0].from.where, 'layout.name');
+  assert.equal(scripts.length, 6);
+  assert.ok(scripts.every((r) => r.how === 'named' && r.resolved === true));
+  assert.ok(scripts.every((r) => /^triggers\.\d+\.script$/.test(r.from.where)));
+});
+
+test('an empty trigger field is not a reference', () => {
+  // fm sends `field: ""` on OnWindowTransaction when no field is set. The
+  // emitter drops an empty name, so no phantom field reference appears.
+  const refs = references(solution).filter((r) => r.from.kind === 'fileOptions' && r.kind === 'field');
+  assert.deepEqual(refs, []);
+});
+
+test('a file with no file-options block contributes no references', () => {
+  const bare = structuredClone(solution);
+  for (const f of Object.values(bare.files)) f.fileOptions = { block: null, error: null, ops: [], readAt: null };
+  assert.deepEqual(references(bare).filter((r) => r.from.kind === 'fileOptions'), []);
+});
+
+// ── fm 0.8.0 structured step options ──────────────────────────────────
+
+const oneStep = (step) => {
+  const one = structuredClone(solution);
+  one.files[api.meta.root].catalogs.script.detailById = { 1: { result: { id: 1, name: 'S', body: [step] } } };
+  return one;
+};
+
+test('a summary column\'s break field is a field reference', () => {
+  const to = solution.files[api.meta.root].catalogs.tableOccurrence.list[0];
+  const field = references(solution).find((r) => r.kind === 'field' && r.resolved);
+  const one = oneStep({ stepID: 36, step: 'Export Records', exportOptions: { fields: [{ field: field.name, summarizeBy: field.name }] } });
+  const refs = references(one).filter((r) => r.kind === 'field' && r.from.where.endsWith('.summarizeBy'));
+  assert.equal(refs.length, 1, 'summarizeBy names the break field a summary is grouped by');
+  assert.equal(refs[0].name, field.name);
+  assert.equal(refs[0].how, 'named');
+  assert.equal(refs[0].resolved, true);
+  assert.ok(to, 'the fixture has an occurrence to build a name from');
+});
+
+test('a sort level\'s reordering summary field is a field reference', () => {
+  const field = references(solution).find((r) => r.kind === 'field' && r.resolved);
+  const one = oneStep({ stepID: 39, step: 'Sort Records', sortOrder: { fields: [{ field: field.name, orderBy: field.name }] } });
+  const refs = references(one).filter((r) => r.kind === 'field' && r.from.where.endsWith('.orderBy'));
+  assert.equal(refs.length, 1);
+  assert.equal(refs[0].resolved, true);
+});
+
+test('an import\'s target table is an occurrence reference, and targetTableName is not', () => {
+  const occurrence = solution.files[api.meta.root].catalogs.tableOccurrence.list[0].name;
+  const one = oneStep({ stepID: 37, step: 'Import Records', importOptions: { targetTable: occurrence, targetTableName: 'LegacyName' } });
+  const refs = references(one).filter((r) => r.from.id === 1);
+  const target = refs.filter((r) => r.kind === 'occurrence' && r.from.where.endsWith('.targetTable'));
+  assert.equal(target.length, 1, 'targetTable names the occurrence records are imported into');
+  assert.equal(target[0].name, occurrence);
+  assert.equal(target[0].resolved, true);
+  // fm: "written by Convert File and empty on an ordinary import; carried so it
+  // round-trips" -- a legacy stored copy, not a live binding. Treating it as a
+  // reference would invent one, and would report LegacyName as dangling.
+  assert.deepEqual(refs.filter((r) => r.from.where.endsWith('.targetTableName')), []);
+});
+
+test('Set Script Triggers and MBS name no solution object', () => {
+  const steps = [
+    { stepID: 997, step: 'Set Script Triggers', on: false },
+    { stepID: 996, step: 'MBS', Function: 'MBS( "Menubar.Install" )', P1: '$x' },
+  ];
+  const one = structuredClone(solution);
+  one.files[api.meta.root].catalogs.script.detailById = { 1: { result: { id: 1, name: 'S', body: steps } } };
+  const from = references(one).filter((r) => r.from.kind === 'script' && r.from.id === 1);
+  // `on` is a flag; MBS's Function names a plug-in function, not an object in
+  // this solution, and its arguments are tokenised like any other formula.
+  assert.deepEqual(from.filter((r) => r.kind === 'script'), []);
+  assert.deepEqual(from.filter((r) => r.kind === 'layout'), []);
+  assert.ok(from.every((r) => r.kind === 'variable' || r.kind === 'field' || r.kind === 'customFunction'),
+    'nothing else is claimed');
 });

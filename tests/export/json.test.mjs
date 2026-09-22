@@ -19,7 +19,7 @@ const parsed = JSON.parse(jsonExport(solution));
 
 test('the export round-trips and carries the solution the page was drawn from', () => {
   assert.equal(parsed.solution.root, solution.root);
-  assert.equal(parsed.solution.cli.version, '0.7.0');
+  assert.equal(parsed.solution.cli.version, '0.8.0-beta.0');
   assert.deepEqual(Object.keys(parsed.solution.files), Object.keys(solution.files));
   assert.equal(parsed.solution.files['fmnet://localhost/ooe'].catalogs.table.list.length, 14);
 });
@@ -55,4 +55,11 @@ test('an empty solution exports the same shape', () => {
   assert.deepEqual(out.solution.files, {});
   assert.deepEqual(out.analyses.broken, []);
   assert.deepEqual(out.analyses.callGraph.nodes, []);
+});
+
+test('the JSON export carries the File Options block, because it carries the model', () => {
+  const root = parsed.solution.files['fmnet://localhost/ooe'];
+  assert.deepEqual(root.fileOptions, solution.files['fmnet://localhost/ooe'].fileOptions);
+  assert.equal(root.fileOptions.block.layout.name, 'File Open', 'measured against the fixture');
+  assert.equal(root.fileOptions.block.triggers.length, 6);
 });

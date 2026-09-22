@@ -11,23 +11,23 @@ Classification is one of `covered`, `derived`, `gap`, `dropped`. `dropped` marks
 | buildDDRTextIndex | attr:'datatype' | dropped | owner ruling 2026-09-14 | The DDR_INFO display-text index existed to show FileMaker's own pre-rendered text in the Reference Explorer. Not needed in the new inspector, which renders from fm's JSON. (The tokenised references inside DDR_INFO are a separate matter: see catalog-calculation-tokens.) |
 | buildDDRTextIndex | qsa:':scope > DDR_INFO' | dropped | owner ruling 2026-09-14 | The DDR_INFO sidecar under every Calculation, used only for the display-text index. Not needed. |
 | buildDDRTextIndex | tag:'*' | dropped | owner ruling 2026-09-14 | Walked every element of the DDR_INFO subtree to build the display-text index. Not needed. |
-| parseFileMetadata | attr:'action' | gap | catalog-file-metadata | ScriptTrigger action on the file (OnFirstWindowOpen etc.). fm reports layout triggers only. |
-| parseFileMetadata | attr:'enable' | gap | catalog-file-metadata | enable on HideToolbars / HideWebDirectSharing / HideClientSharing. No fm catalog for File Options. |
-| parseFileMetadata | attr:'keychain' | gap | catalog-file-metadata | SavePassword keychain flag (File Options > log in using). |
-| parseFileMetadata | attr:'name' | gap | catalog-file-metadata | Names the startup LayoutReference and each file-trigger ScriptReference. The layout and script exist in read:layout / read:script, but the file-level binding does not. |
-| parseFileMetadata | attr:'type' | gap | catalog-file-metadata | Encryption type (0/1) and Login type (-1/0/1). The encryption half is covered by evaluate:calculation `Get ( EncryptionState )`; the login type (File Options) is the gap. |
-| parseFileMetadata | attr:'version' | gap | catalog-file-metadata | Minimum version the file requires. |
+| parseFileMetadata | attr:'action' | covered | — | ScriptTrigger action on the file (OnFirstWindowOpen etc.). fm 0.8.0 reports it as `read:fileOptions` `triggers[].event`, with `eventId` beside it. |
+| parseFileMetadata | attr:'enable' | gap | catalog-file-metadata | enable on HideToolbars / HideWebDirectSharing / HideClientSharing. `hideToolbars` is reported by `read:fileOptions`; the two host-list sharing flags are not. |
+| parseFileMetadata | attr:'keychain' | covered | — | SavePassword keychain flag (File Options > log in using). fm 0.8.0 reports it as `read:fileOptions` `allowStoredCredentials`. |
+| parseFileMetadata | attr:'name' | covered | — | Names the startup LayoutReference and each file-trigger ScriptReference. fm 0.8.0 reports both bindings: `read:fileOptions` `layout` `{name,id}` and `triggers[].script` with `scriptId`. |
+| parseFileMetadata | attr:'type' | covered | — | Encryption type (0/1) and Login type (-1/0/1). Encryption via `evaluate:calculation` `Get ( EncryptionState )`; the login type is `read:fileOptions` `login.mode`. |
+| parseFileMetadata | attr:'version' | covered | — | Minimum version the file requires. fm 0.8.0 reports it as `read:fileOptions` `minimumVersion` (value and build). |
 | parseFileMetadata | qs:'Encryption' | covered | evaluate:calculation `Get ( EncryptionState )` (value "0"/"1") | Encryption-at-rest state. No file catalog, but the Get() function evaluates against the file (verified on ooe 2026-09-14: "0"). The encryption hint and shared-ID details are not exposed. |
 | parseFileMetadata | qs:'HideClientSharing' | gap | catalog-file-metadata | File Options checkbox. |
-| parseFileMetadata | qs:'HideToolbars' | gap | catalog-file-metadata | File Options checkbox. |
+| parseFileMetadata | qs:'HideToolbars' | covered | — | File Options checkbox. fm 0.8.0 reports it as `read:fileOptions` `hideToolbars`. |
 | parseFileMetadata | qs:'HideWebDirectSharing' | gap | catalog-file-metadata | File Options checkbox. |
-| parseFileMetadata | qs:'LayoutReference' | gap | catalog-file-metadata | The startup layout binding under Metadata. |
-| parseFileMetadata | qs:'Login' | gap | catalog-file-metadata | File Options login mode. |
+| parseFileMetadata | qs:'LayoutReference' | covered | — | The startup layout binding under Metadata. fm 0.8.0 reports it as `read:fileOptions` `layout` with `name` and `id`. |
+| parseFileMetadata | qs:'Login' | covered | — | File Options login mode. fm 0.8.0 reports it as `read:fileOptions` `login.mode`. |
 | parseFileMetadata | qs:'Metadata' | gap | catalog-file-metadata | Root of the whole File Options block. |
-| parseFileMetadata | qs:'Minimum' | gap | catalog-file-metadata | Minimum FileMaker version element. |
-| parseFileMetadata | qs:'SavePassword' | gap | catalog-file-metadata | File Options save-password element. |
-| parseFileMetadata | qs:'ScriptReference' | gap | catalog-file-metadata | Script bound to a file-level trigger. |
-| parseFileMetadata | qsa:'ScriptTrigger' | gap | catalog-file-metadata | The list of file-level script triggers; drives s.fileMeta.file_triggers. |
+| parseFileMetadata | qs:'Minimum' | covered | — | Minimum FileMaker version element. fm 0.8.0 reports it as `read:fileOptions` `minimumVersion`. |
+| parseFileMetadata | qs:'SavePassword' | covered | — | File Options save-password element. fm 0.8.0 reports it as `read:fileOptions` `allowStoredCredentials`. |
+| parseFileMetadata | qs:'ScriptReference' | covered | — | Script bound to a file-level trigger. fm 0.8.0 reports it as `read:fileOptions` `triggers[].script` with `scriptId` and `scriptName`. |
+| parseFileMetadata | qsa:'ScriptTrigger' | covered | — | The list of file-level script triggers; drives s.fileMeta.file_triggers. fm 0.8.0 reports them as `read:fileOptions` `triggers[]` with event, eventId, script, scriptId, scriptName. |
 | parseLibrary | qs:'LibraryCatalog' | dropped | owner ruling 2026-09-14 | The image/binary library (button icons, pictures). Not relevant to the analysis; layout objects still name their icon or picture by id. |
 | parseLibrary | qsa:'BinaryData' | dropped | owner ruling 2026-09-14 | Binary payload count for the old file-weight stat. Not relevant. |
 | parseTablesAndFields | attr:'absolute' | covered | baseDirectory.relative | BaseDirectoryReference absolute on a container's external-storage path; fm reports the inverse boolean on read:baseDirectory, with field.options.container.baseDirectory naming which one. |
@@ -139,7 +139,7 @@ Classification is one of `covered`, `derived`, `gap`, `dropped`. `dropped` marks
 | parseLayouts | qs:'ThemeReference' | covered | layout.theme |  |
 | parseLayouts | qsa:'LayoutCatalog ScriptReference' | derived | derived from layout.contents.objects[].action.script + layout.scriptTriggers[].script | s.layouts.script_refs_from_layouts is the count of both across every layout. |
 | parseLayouts | qsa:'LayoutObject' | covered | layout.contents.objects[] (recursive) | Nested objects appear under objects[] on group, portal, popover, tabControl/tabPanel, slideControl/slidePanel and buttonBar. |
-| parseLayouts | qsa:'Metadata ScriptTrigger' | gap | catalog-file-metadata | The FILE's own script triggers (File Options: OnFirstWindowOpen, OnLastWindowClose, OnWindowOpen, OnWindowClose...), which SaXML stores under Metadata, not under any layout. The legacy Layouts tab counted them a second time to show a file-triggers figure beside the layout trigger counts. Layout-level and object-level triggers are fully covered by read:layout; only the file-level bindings have no fm op. |
+| parseLayouts | qsa:'Metadata ScriptTrigger' | covered | — | The FILE's own script triggers (File Options: OnFirstWindowOpen, OnLastWindowClose, OnWindowOpen, OnWindowClose...), which SaXML stores under Metadata, not under any layout. The legacy Layouts tab counted them a second time to show a file-triggers figure beside the layout trigger counts. fm 0.8.0 now reports file-level triggers as `read:fileOptions` `triggers[]`; layout-level and object-level triggers are fully covered by read:layout. |
 | parseLayouts | qsa:'Step' | covered | layout.contents.objects[].action |  |
 | parseScripts | attr:'enable' | covered | script.body[].disabled | Inverse sense: fm reports disabled true where SaXML says enable=False, and the key is absent on an enabled step. |
 | parseScripts | attr:'hidden' | covered | script.hidden | hidden=False in SaXML means 'include in menu'; fm reports the boolean directly on both listing and describe. |
@@ -261,7 +261,7 @@ Classification is one of `covered`, `derived`, `gap`, `dropped`. `dropped` marks
 | parseBrokenReferences | qsa:'Script' | covered | read:script items[] |  |
 | parseBrokenReferences | qsa:'Tooltip' | covered | layout.contents.objects[].tooltip | Reported as the calculation text. |
 | parseGlobalVars | attr:'value' | covered | script.body[].name | The Set Variable target name, including names containing spaces. |
-| parseGlobalVars | qsa:'Chunk[type="VariableReference"]' | gap | catalog-calculation-tokens | FileMaker's own parse of each calculation (the FM 2026 DDR_INFO chunk list) names every $$ variable a formula reads. fm returns calculation text only, and validate:calculation reports valid/invalid plus one error position, not the tokens. So the global-variables tab must find $$ names by scanning text, which is approximate for names with spaces ($$SMTP Server, valid in FileMaker), names inside comments, and names inside string literals. |
+| parseGlobalVars | qsa:'Chunk[type="VariableReference"]' | gap | catalog-calculation-tokens | FileMaker's own parse of each calculation (the FM 2026 DDR_INFO chunk list) names every $$ variable a formula reads. fm 0.8.0 reports field and custom-function tokens via `validate:calculation` `references`, but does not report variable tokens. So the global-variables tab must find $$ names by scanning text, which is approximate for names with spaces ($$SMTP Server, valid in FileMaker), names inside comments, and names inside string literals. |
 | parseGlobalVars | qsa:'StepsForScripts Parameter[type="Variable"] > Name[value]' | covered | script.body[].name | Set Variable targets; confirmed on step 141 in the samples. |
 | parseCustomMenus | attr:'membercount' | derived | derived from read:customMenuSet listing total | Legacy fallback when the catalog lists no members. |
 | parseCustomMenus | attr:'name' | covered | customMenu.name + customMenuSet.name |  |
@@ -469,16 +469,16 @@ Classification is one of `covered`, `derived`, `gap`, `dropped`. `dropped` marks
 | render | s.deep.scripts_with_unguarded_abort_off | derived | derived from script.body[].on for stepID 85 |  |
 | render | s.ext.detail | covered | externalDataSource.{name,paths,sourceType,dsn,hasData} + authorization.{type,filenames,authorizedBy} |  |
 | render | s.fileMeta.encryption | covered | evaluate:calculation `Get ( EncryptionState )` | Rendered as on/off from the "0"/"1" value. |
-| render | s.fileMeta.file_trigger_actions | gap | catalog-file-metadata | File-level script triggers and the scripts they call. |
-| render | s.fileMeta.hide_toolbars | gap | catalog-file-metadata |  |
+| render | s.fileMeta.file_trigger_actions | covered | — | File-level script triggers and the scripts they call. fm 0.8.0 reports them as `read:fileOptions` `triggers[]` with event, script, and script id. |
+| render | s.fileMeta.hide_toolbars | covered | — | fm 0.8.0 reports it as `read:fileOptions` `hideToolbars`. |
 | render | s.fileMeta.hide_web_direct | gap | catalog-file-metadata |  |
-| render | s.fileMeta.login_type | gap | catalog-file-metadata |  |
-| render | s.fileMeta.min_fm_version | gap | catalog-file-metadata |  |
-| render | s.fileMeta.save_password | gap | catalog-file-metadata |  |
-| render | s.fileMeta.startup_layout | gap | catalog-file-metadata |  |
-| render | s.globals.detail | gap | catalog-calculation-tokens | Per-variable contact counts. Set Variable targets are covered (script.body[].name) but every $$ READ inside a calculation needs the tokenised chunk stream; a regex over calculation text mis-splits names containing spaces. |
-| render | s.globals.global_variable_count | gap | catalog-calculation-tokens | Same source problem; the count would be low by every read-only variable. |
-| render | s.globals.max_global_contacts | gap | catalog-calculation-tokens | Same source problem. |
+| render | s.fileMeta.login_type | covered | — | fm 0.8.0 reports it as `read:fileOptions` `login.mode`. |
+| render | s.fileMeta.min_fm_version | covered | — | fm 0.8.0 reports it as `read:fileOptions` `minimumVersion`. |
+| render | s.fileMeta.save_password | covered | — | fm 0.8.0 reports it as `read:fileOptions` `allowStoredCredentials`. |
+| render | s.fileMeta.startup_layout | covered | — | fm 0.8.0 reports it as `read:fileOptions` `layout` with `name` and `id`. |
+| render | s.globals.detail | gap | catalog-calculation-tokens | Per-variable contact counts. Set Variable targets are covered (script.body[].name) but every $$ READ inside a calculation needs the variable token stream, which fm 0.8.0 still does not report; a regex over calculation text mis-splits names containing spaces. |
+| render | s.globals.global_variable_count | gap | catalog-calculation-tokens | Same source problem (fm 0.8.0 does not report variable tokens); the count would be low by every read-only variable. |
+| render | s.globals.max_global_contacts | gap | catalog-calculation-tokens | Same source problem (fm 0.8.0 does not report variable tokens). |
 | render | s.graph.cascade_delete | derived | derived from relation.leftToRight.cascadeDelete + relation.rightToLeft.cascadeDelete |  |
 | render | s.graph.detail.relationships_all | covered | relation.{left,right,predicates[],leftToRight,rightToLeft} | Every column including the sorted tick (sortRelated) and, since fm 0.7.0, the sort itself (`rightToLeft.sortSpec.fields[]{field,order}`); only blanksLast and maintain are unreported. |
 | render | s.graph.detail.tos_all | covered | tableOccurrence.{name,table.name} |  |
@@ -575,12 +575,12 @@ Classification is one of `covered`, `derived`, `gap`, `dropped`. `dropped` marks
 
 | Classification | Rows |
 |---|---|
-| covered | 413 |
+| covered | 432 |
 | derived | 67 |
-| gap | 75 |
+| gap | 56 |
 | dropped | 8 |
 
-Counted from this file on 2026-09-16 by tallying the Classification column of every table row; 413 + 67 + 75 + 8 = 563, the number of rows in the table. The rows themselves have not moved since 2026-09-14; what changed is that fm 0.7.0 turned 27 gap rows into covered or derived rows (the theme count is derived from the listing total, like every other count) - all 23 of `catalog-theme-styles`, the one `catalog-relation-sort` row, and three of the seven `catalog-layout-parts` rows - leaving 10 gap ids. A plain `grep -c` over the whole file returns one more than each number here, because the Summary row above also matches.
+Counted from this file on 2026-09-22 by tallying the Classification column of every table row; 432 + 67 + 56 + 8 = 563, the number of rows in the table. The rows themselves have not moved since 2026-09-14; what changed is that fm 0.7.0 turned 27 gap rows into covered or derived rows (the theme count is derived from the listing total, like every other count) - all 23 of `catalog-theme-styles`, the one `catalog-relation-sort` row, and three of the seven `catalog-layout-parts` rows - and then fm 0.8.0-beta.0's `read:fileOptions` turned 19 more gap rows into covered ones, leaving the two host-list sharing flags, the saved page setup, the Browse-mode trigger flag and the `Metadata` container. A plain `grep -c` over the whole file returns one more than each number here, because the Summary row above also matches.
 
 ## Gap ids introduced
 
@@ -588,8 +588,8 @@ Ten ids, after fm 0.7.0 closed `catalog-theme-styles` and `catalog-relation-sort
 
 From the brief's list:
 
-- `catalog-file-metadata` (24 rows): no catalog for File Options. Login mode, saved password, minimum FileMaker version, the three hide-sharing checkboxes, the startup layout and file-level script triggers have no read op and no Get() function (fm help: file-level options are deliberately not members of any catalog). Encryption state, file name, path, size, persistent ID and locale ARE readable through evaluate:calculation with Get() functions, so those rows are covered.
-- `catalog-calculation-tokens` (4 rows): FileMaker's tokenised form of every calculation. A FileMaker 2026 SaXML export with DDR info carries each formula twice: as text and as FileMaker's own parse of it, a list of Chunk elements typed FieldReference, VariableReference, FunctionRef, CustomFunctionRef, ScriptRef and so on, which says exactly what a formula references. fm reports the text only; no read op and not validate:calculation exposes the tokens. Every cross-reference analysis (unreferenced fields and occurrences, broken references, global variables, custom function usage) therefore has to scan calculation text, which is approximate where FileMaker's parser is exact: variable names with spaces, references inside comments or string literals, `::` inside quoted text.
+- `catalog-file-metadata` (5 rows): fm 0.8.0 reports most File Options settings via `read:fileOptions`: the startup layout, login mode, toolbar flag, minimum version, stored credentials flag, and all file script triggers with their events and scripts. What remains a gap: the two "hide from host's file list" flags (FileMaker clients and WebDirect), the saved page setup (orientation, scale, paper size), whether a file trigger is enabled in Browse mode, and the structural container element `Metadata`. Encryption state, file name, path, size, persistent ID and locale remain readable through evaluate:calculation with Get() functions.
+- `catalog-calculation-tokens` (4 rows): FileMaker's tokenised form of every calculation. A FileMaker 2026 SaXML export with DDR info carries each formula twice: as text and as FileMaker's own parse of it, a list of Chunk elements typed FieldReference, VariableReference, FunctionRef, CustomFunctionRef, ScriptRef and so on, which says exactly what a formula references. fm 0.8.0 reports field and custom-function tokens via `validate:calculation` `references`, but not variable tokens. Every cross-reference analysis (unreferenced fields and occurrences, broken references, global variables, custom function usage) therefore has to scan calculation text for variable reads, which is approximate where FileMaker's parser is exact: variable names with spaces, references inside comments or string literals, `::` inside quoted text.
 - `catalog-plugins` (7 rows): nothing marks a calculation call site as a plugin function call. The Plugins tab and the plugin-call uncertainty signal behind the Fields confidence tier depend on it.
 - `catalog-modification-info` (14 rows): no object reports a modification count, and only a layout reports who and when (`layout.modified`). The Modification Hotspots tab and the audit columns of the Persistent Data tab depend on it.
 - `catalog-layout-parts` (4 rows, narrowed on 2026-09-16): fm 0.7.0 reports `layout.parts[]{type,height,offset,name,breakField}`, which covers part presence, count, type, order and geometry, so the Wireframe tab and the header/footer/sub-summary/navigation layout lists have a source now. What is left is the part's options word (page breaks, page numbering, alternate and active row state), the raw part type code, the part definition kind, the object count per part, and any style or CSS a part wears - a part entry carries no style key at all.

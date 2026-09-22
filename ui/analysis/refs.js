@@ -26,7 +26,7 @@
 //     It is fm's step TYPE id -- 141 is EVERY `Set Variable` -- so it identifies
 //     what the step is, never which step it is, and it is NOT the anchor the
 //     Scripts tab links to: that is FileMaker's 1-based line, `#L<line>`, built
-//     from `from.where` (`body[<index>]` + 1) by ui/tabs/explorer.js. It is kept
+//     from `from.where` (`body.<index>` + 1) by ui/tabs/explorer.js. It is kept
 //     because a caller asking what KIND of step wrote a name would otherwise
 //     have to find the step again;
 //   * an occurrence's fields are the SOURCE file's: `nameIndex` follows
@@ -47,6 +47,10 @@
 //     `tableOccurrence`      -> fm's own numeric id for that object.
 //   * `relation`             -> fm's numeric relation id; its `from.name` is
 //                               `Left <-> Right`, because a relation has no name.
+//   * `fileOptions`          -> the constant `'fileOptions'`. A file has exactly
+//                               one File Options block and fm gives it no id, so
+//                               there is nothing else it could be; `from.target`
+//                               is what says which file's.
 //
 // The one thing the field-token rule can get wrong: an occurrence or field name
 // containing a space or an operator character cannot be written in the token
@@ -70,15 +74,34 @@ import { fieldsOf } from '../tabs/tables.js';
 
 // ── The one string walk ───────────────────────────────────────────────
 
+// fm reports the platform's own print and page-setup state under `preserved`
+// subtrees: hex-encoded plists it hands back unchanged so a write can restore them.
+// No analysis reads them, and skipping them prevents a quadratic scan. `FIELD_RE` is
+// `NAME_CHARS::NAME_CHARS` and a hex digit is a valid name character, so a long
+// delimiter-free string makes the scan quadratic -- every start position rescans
+// forward with no `::` to stop it. Measured on ooe: 352 strings totaling 1.2MB, the
+// longest 52KB. That blob alone cost 788ms where the same length carrying delimiters
+// cost 9ms. Tokenising fm 0.8.0's blobs took `references()` from under a second to
+// 105 seconds, and three of the four callers of `strings()` also walk every string
+// looking for markers or regex patterns, paying the same cost independently. The
+// walker skips them on behalf of every analysis.
+const OPAQUE_SUBTREE = /(^|\.)preserved(\[|\.|$)/;
+export const isOpaqueValue = (key, at) => OPAQUE_SUBTREE.test(at);
+
 /** Visit every string value of `obj`, however deep, with its dotted key path,
- *  its own key, and the object it sits on. Array indices are path segments. */
+ *  its own key, and the object it sits on. Array indices are path segments.
+ *  Skips fm's opaque round-trip blobs (`preserved` subtrees and `*Raw` keys) that
+ *  no analysis reads. */
 export function strings(obj, visit, prefix = '') {
   if (obj === null || typeof obj !== 'object') return;
   const entries = Array.isArray(obj) ? obj.map((v, i) => [String(i), v]) : Object.entries(obj);
   for (const [key, value] of entries) {
     const at = prefix ? `${prefix}.${key}` : key;
-    if (typeof value === 'string') visit(value, at, key, obj);
-    else if (value !== null && typeof value === 'object') strings(value, visit, at);
+    if (typeof value === 'string') {
+      if (!isOpaqueValue(key, at)) visit(value, at, key, obj);
+    } else if (value !== null && typeof value === 'object') {
+      strings(value, visit, at);
+    }
   }
 }
 
@@ -381,11 +404,21 @@ const NAMED_STRING = {
   // `callback` (Perform Script on Server with Callback), `table` (Save Records
   // as JSONL, Fine-Tune Model; the only string `table` key in the whole model).
   scriptReference: 'script', callback: 'script', table: 'table',
+  // fm 0.8.0: the table OCCURRENCE an Import Records step imports into, by name.
+  // Its sibling `targetTableName` is deliberately absent -- fm calls it "the
+  // target table's name as stored beside the mapping. Written by Convert File
+  // and empty on an ordinary import; carried so it round-trips", so it is a
+  // legacy copy rather than a live binding, and reading it as a reference would
+  // report a name nothing points at as dangling.
+  targetTable: 'occurrence',
 };
 
 // Keys whose value is a field name, bare or `TO::Field`: fm's `field` plus the
-// two the regression steps use.
-const FIELD_KEYS = new Set(['field', 'vectorsField', 'labelsField']);
+// two the regression steps use, plus the two fm 0.8.0 added inside the
+// structured step options -- a summary column's break field and the summary
+// field that reorders a sort level. Both are documented as 'Occurrence::Field',
+// so they take the same path `field` does.
+const FIELD_KEYS = new Set(['field', 'vectorsField', 'labelsField', 'summarizeBy', 'orderBy']);
 
 // A `{ name, id, … }` object under one of these keys names an object of that
 // kind: `field.tableOccurrence`, a trigger's `script`, a relation's
@@ -512,6 +545,16 @@ function* sources(solution) {
   for (const file of Object.values(get(solution, 'files') ?? {})) {
     const target = get(file, 'target');
 
+    // File Options is one block, not a catalog, so it is yielded directly
+    // rather than walked out of `detailsOf`. It needs no new matcher: its
+    // `layout` is a `{name, id}` under a key NAMED_OBJECT already maps, and
+    // each trigger's `script` is a string under a key NAMED_STRING already
+    // maps. `hasOwnName` stays false -- the block has no `name` of its own.
+    const fileOptions = path(file, 'fileOptions.block');
+    if (fileOptions) {
+      yield { record: fileOptions, target, kind: 'fileOptions', id: 'fileOptions', name: 'File Options', prefix: '' };
+    }
+
     for (const t of listOf(file, 'table')) {
       const table = get(t, 'name');
       for (const f of fieldsOf(file, table)) {
@@ -532,9 +575,10 @@ function* sources(solution) {
       const body = get(detail, 'body') ?? [];
       // A step has no name of its own -- `name` on a step is an operand -- so
       // `hasOwnName` stays false here. `stepID` is fm's step TYPE id, which says
-      // what the step is; WHICH step it is, is the `body[<index>]` in `where`,
-      // and the Scripts tab's anchor is that index + 1 (`#L<line>`).
-      for (let i = 0; i < body.length; i += 1) yield { ...src, record: body[i], prefix: `body[${i}]`, stepID: get(body[i], 'stepID') };
+      // what the step is; WHICH step it is, is the `body.<index>` in `where`,
+      // and the Scripts tab's anchor is that index + 1 (`#L<line>`). Dot notation
+      // throughout for consistency with broken.js and strings().
+      for (let i = 0; i < body.length; i += 1) yield { ...src, record: body[i], prefix: `body.${i}`, stepID: get(body[i], 'stepID') };
       // `problems` is fm's own list of what it could not resolve: Task 3's
       // input, not a reference, so it is not scanned here.
     }
@@ -603,6 +647,14 @@ function predicateRefs(solution, out, resolve) {
 // it first and the number should have one home; globals.js imports it from here.
 // The provenance of the id list is in ui/analysis/scripts.js (PSOS_ONLY_STEPS).
 export const SET_VARIABLE = 141;
+
+/** The two 0.8.0 steps that name their target by calculation instead of
+ *  literally. Matched on fm's own `step` name rather than a numeric id: the
+ *  step-display catalog has no entry for either, the register's step entries
+ *  carry ids without names, and both steps postdate every id this repo knows.
+ *  fm reports `step` on every step object, so the name is the key available. */
+export const SET_VARIABLE_BY_NAME = 'Set Variable by Name';
+export const REPLACE_BY_NAME = 'Replace Field Contents by Name';
 
 /** Every variable name the solution's `Set Variable` steps write, `$` and `$$`,
  *  verbatim and sorted: the names a `$` token in calculation text may be read

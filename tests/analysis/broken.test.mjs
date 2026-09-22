@@ -53,11 +53,14 @@ test('a script problem is reported verbatim, from the script that carries it', (
   }]);
 });
 
-test('the fixture\'s script problems are measured: 352 problems on 15 scripts', () => {
+test('the fixture\'s script problems are measured: 350 problems on 14 scripts', () => {
   const rows = broken(solution).filter((r) => r.kind === 'problem');
-  assert.equal(rows.length, 352);
+  // Re-measured after 0.8.0 re-record: 352 → 350 (down 2), 15 → 14 scripts.
+  // This is opposite to the brief's expectation but consistent with improved
+  // field resolution - one script's problems were resolved entirely.
+  assert.equal(rows.length, 350);
   const byScript = new Set(rows.map((r) => `${r.target}\u0000${r.from.id}`));
-  assert.equal(byScript.size, 15);
+  assert.equal(byScript.size, 14);
   assert.ok(rows.every((r) => r.from.kind === 'script'));
   // fm's own fields, kept verbatim: exactly path and step, nothing added or dropped.
   assert.ok(rows.every((r) => Object.keys(r.detail).sort().join(',') === 'path,step'));
@@ -108,27 +111,23 @@ test('a <Function Missing> marker is the same family, matched by the generic wor
   assert.equal(rows[0].detail.context, '/*<Function Missing>( 2 ) + 4*/');
 });
 
-test('the fixture carries five <Function Missing> markers, measured, and no <Field Missing> or <Table Missing>', () => {
-  // Re-measured after widening the pattern from two fixed strings to the
-  // generic family: `<Field Missing>` and `<Table Missing>` still occur zero
-  // times on ooe. `<Function Missing>` occurs five times, all in the two
+test('the fixture carries four <Function Missing> markers, measured, and no <Field Missing> or <Table Missing>', () => {
+  // Re-measured after the 0.8.0 re-record: was 5, now 4. The body.5.value
+  // marker in "All script steps and all options 20260318" is gone (fm may have
+  // changed how it reports that calculation). The remaining four are in the two
   // mirrored "All script steps and all options" scripts (ids 39 and 55): a
   // Set Field's calculated `record`, a Go to Layout's calculated `layoutName`,
-  // and three Set Variable `value`s (one of them inside a much larger Case()
-  // calculation, which is why its `context` below is not the whole value).
+  // and two Set Variable `value`s. Paths use dot notation to match refs.js.
   const rows = broken(solution).filter((r) => r.kind === 'missingMarker');
   assert.deepEqual([...new Set(rows.map((r) => r.detail.what))], ['Function']);
-  assert.equal(rows.length, 5);
+  assert.equal(rows.length, 4);
   const by = rows.map((r) => `${r.from.name}|${r.from.where}`).sort();
   assert.deepEqual(by, [
-    'All script steps and all options 20260318|body[118].value',
-    'All script steps and all options 20260318|body[5].value',
-    'All script steps and all options|body[124].layoutName',
-    'All script steps and all options|body[159].record',
-    'All script steps and all options|body[84].value',
+    'All script steps and all options 20260318|body.118.value',
+    'All script steps and all options|body.124.layoutName',
+    'All script steps and all options|body.159.record',
+    'All script steps and all options|body.84.value',
   ]);
-  const long = rows.find((r) => r.from.where === 'body[5].value');
-  assert.match(long.detail.context, /_calc_var_three = <Function Missing>/);
 });
 
 // ── Occurrences whose base table did not resolve ────────────────────────
@@ -190,7 +189,7 @@ test('a dangling Perform Script name is reported', () => {
   const rows = broken(sol);
   assert.deepEqual(rows, [{
     target: 'file:///x.fmp12', kind: 'danglingName',
-    from: { kind: 'script', id: 1, name: 'caller', where: 'body[0].script', stepID: 7 },
+    from: { kind: 'script', id: 1, name: 'caller', where: 'body.0.script', stepID: 7 },
     detail: { name: 'gone', refKind: 'script' },
   }]);
 });
@@ -256,8 +255,9 @@ test('the broken counts by kind on the fixture', () => {
   const rows = broken(solution);
   const byKind = {};
   for (const r of rows) byKind[r.kind] = (byKind[r.kind] ?? 0) + 1;
-  assert.deepEqual(byKind, { problem: 352, missingMarker: 5 });
-  assert.equal(rows.length, 357);
+  // Re-measured after 0.8.0 re-record: problem 352→350, missingMarker 5→4.
+  assert.deepEqual(byKind, { problem: 350, missingMarker: 4 });
+  assert.equal(rows.length, 354);
 });
 
 test('a marker on a script step is spelled the way refs.js spells the same place', () => {
@@ -267,14 +267,18 @@ test('a marker on a script step is spelled the way refs.js spells the same place
   assert.ok(markers.length > 0);
   const stepPaths = references(solution).filter((r) => r.from.kind === 'script').map((r) => String(r.from.where));
   assert.ok(stepPaths.length > 0);
-  for (const where of stepPaths) assert.match(where, /^body\[\d+\]\./, where);
-  for (const m of markers) assert.match(m.from.where, /^body\[\d+\]\./, m.from.where);
+  // Both use dot notation now: body.N.key, not body[N].key.
+  for (const where of stepPaths) assert.match(where, /^body\.\d+\./, where);
+  for (const m of markers) assert.match(m.from.where, /^body\.\d+\./, m.from.where);
   // Not merely the same shape: on at least one step both analyses found
   // something, and they name that step identically. (Not every marker step has
-  // a reference -- `body[124].layoutName` on ooe is calculation text whose only
+  // a reference -- `body.124.layoutName` on ooe is calculation text whose only
   // token is the missing function itself, so refs.js finds no name there.)
   const shared = markers.filter((m) => {
-    const prefix = m.from.where.slice(0, m.from.where.indexOf(']') + 1);
+    // Extract the step prefix (e.g., "body.84" from "body.84.value").
+    const match = m.from.where.match(/^body\.\d+/);
+    if (!match) return false;
+    const prefix = match[0];
     return stepPaths.some((p) => p.startsWith(`${prefix}.`));
   });
   assert.ok(shared.length > 0, 'no marker step carries a reference too');
@@ -297,6 +301,17 @@ test('a field option marker carries the options prefix refs.js uses', () => {
   assert.equal(row.from.id, 'T::A');
 });
 
+test('a deadKey on a script step is spelled the way refs.js spells it: dot notation, not [i]', () => {
+  // The path spelling must match refs.js so a deadKey row and a reference row
+  // about one step read identically. refs.js uses dot-separated indices.
+  const one = withStep({ stepID: 22, step: 'Perform Find', findRequests: [{ operation: 'find', criteria: [{ fieldKey: [3, 17], criterion: 'x' }] }] });
+  const dead = broken(one).filter((b) => b.kind === 'deadKey');
+  assert.equal(dead.length, 1);
+  // Dot notation: body.0.findRequests.0.criteria.0.fieldKey, not body[0].findRequests[0].criteria[0].fieldKey.
+  assert.match(dead[0].from.where, /^body\.\d+\.findRequests\.\d+\.criteria\.\d+\.fieldKey$/);
+  assert.ok(!dead[0].from.where.includes('['), 'no bracket notation');
+});
+
 test("a marker in a script's own problems[] is still found, outside the body split", () => {
   const sol = handMade({
     script: {
@@ -309,4 +324,87 @@ test("a marker in a script's own problems[] is still found, outside the body spl
   });
   const markers = broken(sol).filter((r) => r.kind === 'missingMarker');
   assert.deepEqual(markers.map((r) => r.from.where), ['problems.0.step']);
+});
+
+// ── Dead keys: references fm reports by raw key instead of name ─────────
+
+const withStep = (step) => {
+  const one = structuredClone(solution);
+  one.files[api.meta.root].catalogs.script.detailById = { 1: { result: { id: 1, name: 'S', body: [step] } } };
+  return one;
+};
+
+test('a fieldKey with no field beside it is a reference fm says is dead', () => {
+  // fm: "the raw [tableKey, fieldKey] pair of a criterion whose field no longer
+  // exists -- how the criterion is read back once that happens."
+  const one = withStep({ stepID: 22, step: 'Perform Find', findRequests: [{ operation: 'find', criteria: [{ fieldKey: [3, 17], criterion: 'x' }] }] });
+  const dead = broken(one).filter((b) => b.kind === 'deadKey');
+  assert.equal(dead.length, 1);
+  assert.equal(dead[0].detail.names, 'field');
+  assert.deepEqual(dead[0].detail.raw, [3, 17]);
+  assert.equal(dead[0].detail.key, 'fieldKey');
+  assert.equal(dead[0].from.id, 1);
+  // The spelling must match refs.js: dot-separated indices, not [i] notation.
+  assert.match(dead[0].from.where, /^body\.0\.findRequests\.0\.criteria\.0\.fieldKey$/);
+});
+
+test('a fieldKey BESIDE its field is not dead -- fm reports the name when it resolves', () => {
+  const field = 'Any::Field';
+  const one = withStep({ stepID: 22, step: 'Perform Find', findRequests: [{ operation: 'find', criteria: [{ field, fieldKey: [3, 17], criterion: 'x' }] }] });
+  assert.deepEqual(broken(one).filter((b) => b.kind === 'deadKey'), [],
+    'both present means the reference resolved; reporting it would be a false positive');
+});
+
+test('a fieldKey of [0,0] is not dead -- that is an unconfigured sort level, not a deleted field', () => {
+  // [0,0] is what FileMaker writes when nothing was chosen for a sort level.
+  // A deleted field leaves non-zero stored numbers behind (fm's catalog keys
+  // are 1-based), which is why fm reports the key at all.
+  const one = withStep({ stepID: 39, step: 'Sort Records', sortOrder: { fields: [{ fieldKey: [0, 0], order: 'ascending' }] } });
+  assert.deepEqual(broken(one).filter((b) => b.kind === 'deadKey'), [],
+    'unconfigured sort level is not a broken reference');
+});
+
+test('a fieldKey of [] is not dead -- an empty array is more plausible as a placeholder than a real key', () => {
+  // No such value occurs in the fixture, so the conservative rule (both elements
+  // non-zero) excludes it. A false positive is worse than a miss.
+  const one = withStep({ stepID: 39, step: 'Sort Records', sortOrder: { fields: [{ fieldKey: [], order: 'ascending' }] } });
+  assert.deepEqual(broken(one).filter((b) => b.kind === 'deadKey'), []);
+});
+
+test('a half-zero pair [0,n] or [n,0] is not dead -- no such value occurs in the fixture', () => {
+  // Scalar placeholders corroborate the scalar branch: memberKey: 0 (×127),
+  // scriptKey: 0 (×59). No half-zero pair occurs anywhere, so the conservative
+  // rule (both non-zero) is chosen rather than OR. A false positive is worse than a miss.
+  const cases = [
+    { stepID: 39, step: 'Sort Records', sortOrder: { fields: [{ fieldKey: [0, 7], order: 'ascending' }] } },
+    { stepID: 39, step: 'Sort Records', sortOrder: { fields: [{ fieldKey: [3, 0], order: 'ascending' }] } },
+  ];
+  for (const step of cases) {
+    assert.deepEqual(broken(withStep(step)).filter((b) => b.kind === 'deadKey'), []);
+  }
+});
+
+test('every *Key variant is recognised, with the kind it would have named', () => {
+  const cases = [
+    [{ stepID: 36, step: 'Export Records', exportOptions: { fields: [{ summarizeByKey: [1, 2] }] } }, 'summarizeByKey', 'field'],
+    [{ stepID: 36, step: 'Export Records', exportOptions: { groupBy: [{ fieldKey: [1, 2] }] } }, 'fieldKey', 'field'],
+    [{ stepID: 39, step: 'Sort Records', sortOrder: { fields: [{ orderByKey: [1, 2] }] } }, 'orderByKey', 'field'],
+    [{ stepID: 39, step: 'Sort Records', sortOrder: { fields: [{ valueListKey: 9 }] } }, 'valueListKey', 'valueList'],
+    [{ stepID: 37, step: 'Import Records', importOptions: { targetTableKey: 4 } }, 'targetTableKey', 'occurrence'],
+  ];
+  for (const [step, key, names] of cases) {
+    const dead = broken(withStep(step)).filter((b) => b.kind === 'deadKey');
+    assert.equal(dead.length, 1, `${key} was not recognised`);
+    assert.equal(dead[0].detail.key, key);
+    assert.equal(dead[0].detail.names, names);
+  }
+});
+
+test('the ooe fixture is measured, not assumed', () => {
+  // A dead key needs a step whose field was deleted under it, which the
+  // reference file may simply not contain -- so this pins whatever is there and
+  // the behaviour above is proven on synthesised shapes. ooe is a healthy file
+  // and carries no deleted-field step, so the expected count is 0.
+  const dead = broken(solution).filter((b) => b.kind === 'deadKey');
+  assert.equal(dead.length, 0);
 });

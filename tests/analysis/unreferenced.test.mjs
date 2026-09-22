@@ -370,25 +370,36 @@ test('unreferenced is memoised on the solution object and recomputes for another
   assert.equal(unreferenced(solution), unreferenced(solution));
 });
 
-// ── Pinned against the ooe fixture (fm 0.7.0, recorded 2026-09-16) ────
+// ── Pinned against the ooe fixture (fm 0.8.0-beta.0, re-recorded 2026-09-21) ────
 // Every number below was printed from the fixture before it was written here.
 
 test('the count of unreferenced objects per kind on the fixture', () => {
   const out = unreferenced(solution);
   const sizes = Object.fromEntries(['fields', 'tables', 'occurrences', 'scripts', 'layouts', 'valueLists', 'customFunctions', 'styles'].map((k) => [k, out[k].length]));
+  // Re-measured after 0.8.0 re-record: one field (OrderOfOperationsTest_u) that
+  // was text-only is now properly named in structured option keys.
+  // Re-measured after Task 5: layouts -1 (BrojDva's Ooe2 is now referenced by
+  // its File Options startup layout, so it is no longer unreferenced).
+  // Re-measured after Task 5b: fields -1 (Contacts::listOf_s was text-only, now
+  // properly referenced via orderBy in a Sort Records step).
   assert.deepEqual(sizes, {
-    fields: 40, tables: 0, occurrences: 6, scripts: 37,
-    layouts: 15, valueLists: 4, customFunctions: 6, styles: 277,
+    fields: 38, tables: 0, occurrences: 6, scripts: 37,
+    layouts: 14, valueLists: 4, customFunctions: 6, styles: 277,
   });
   // Two files, and each list carries rows from both.
+  // Re-measured after Task 5b: ooe -1 (Contacts::listOf_s now referenced).
   assert.deepEqual(out.fields.reduce((o, r) => ({ ...o, [r.target]: (o[r.target] ?? 0) + 1 }), {}), {
-    'fmnet://localhost/ooe': 34, 'fmnet://localhost/BrojDva': 6,
+    'fmnet://localhost/ooe': 32, 'fmnet://localhost/BrojDva': 6,
   });
 });
 
-test('the fixture\'s unreferenced fields split 34 with no reference at all, 6 named only in calculation text', () => {
+test('the fixture\'s unreferenced fields split 34 with no reference at all, 4 named only in calculation text', () => {
   const out = unreferenced(solution);
-  assert.deepEqual(out.fields.reduce((o, r) => ({ ...o, [r.tier]: (o[r.tier] ?? 0) + 1 }), {}), { none: 34, 'text-only': 6 });
+  // Re-measured after 0.8.0 re-record: OrderOfOperationsTest_u promoted from
+  // text-only to properly referenced (appears in sortOrder or findRequests).
+  // Re-measured after Task 5b: Contacts::listOf_s promoted from text-only to
+  // properly referenced (orderBy in a Sort Records step).
+  assert.deepEqual(out.fields.reduce((o, r) => ({ ...o, [r.tier]: (o[r.tier] ?? 0) + 1 }), {}), { none: 34, 'text-only': 4 });
   // Nothing anywhere names this one: not a layout, not a script, not a calc.
   assert.deepEqual(out.fields.find((r) => r.field === 'field_hindi'), {
     target: 'fmnet://localhost/ooe', table: 'index_languages', field: 'field_hindi',
@@ -397,7 +408,7 @@ test('the fixture\'s unreferenced fields split 34 with no reference at all, 6 na
   // A global whose only appearances are inside other fields' formulas.
   assert.equal(out.fields.find((r) => r.name === 'TestTable::MyGlobal_g').tier, 'text-only');
   assert.deepEqual(out.fields.filter((r) => r.tier === 'text-only').map((r) => r.name), [
-    'Invoice::InvoiceNumber', 'Contacts::listOf_s', 'Contacts::OrderOfOperationsTest_u',
+    'Invoice::InvoiceNumber',
     'TestTable::field_that_contains_array', 'TestTable::field_that_contains_embedding', 'TestTable::MyGlobal_g',
   ]);
 });
@@ -449,7 +460,9 @@ test('confidence on the fixture is low, because one file could not be read', () 
   // that failed (DBError 802) and makes the answer provisional; the $$variable
   // path is a permanent property of the file and is only a reason.
   assert.equal(solution.unreachable.length, 2);
-  assert.equal(c.notes.length, 4);
+  // Re-measured after Task 5: notes.length -1 (the file-options note is retired,
+  // because fm 0.8.0 reports both the startup layout and file trigger scripts).
+  assert.equal(c.notes.length, 3);
 });
 
 test('every row says which file it came from', () => {
@@ -493,4 +506,40 @@ test('an occurrence with no base table name suppresses nothing', () => {
   };
   const sol = handMadeFiles([{ target: 'file:///a.fmp12', name: 'A', catalogs: nameless }, fileB]);
   assert.deepEqual(unreferenced(sol).fields.map((r) => r.name), ['Invoice::InvoiceNumber', 'Invoice::Spare']);
+});
+
+test('the file-options confidence note is gone, and the other three stand', () => {
+  const notes = unreferenced(solution).confidence.notes;
+  assert.ok(!notes.some((n) => n.includes('file-options')), 'fm 0.8.0 has a file-options read');
+  assert.ok(!notes.some((n) => n.includes('startup layout')));
+  assert.equal(notes.length, 3, 'plug-in call sites, privilege-set custom access, part styles');
+  assert.ok(notes.some((n) => n.includes('plugin-call-sites')));
+  assert.ok(notes.some((n) => n.includes('privilege set')));
+  assert.ok(notes.some((n) => n.includes('style')));
+});
+
+test('a script used only by a file trigger is not listed unreferenced', () => {
+  // On ooe this changes no list -- File Open and noop are both referenced from
+  // elsewhere -- so it is asserted on a solution where the trigger is the only
+  // reference, which is the case the note used to disclaim.
+  const one = structuredClone(solution);
+  for (const f of Object.values(one.files)) f.fileOptions = { block: null, error: null, ops: [], readAt: null };
+  const root = one.files[api.meta.root];
+  const script = Object.values(root.catalogs.script.detailById).map((e) => e.result).find((r) => r && r.name);
+  root.fileOptions = {
+    block: { kind: 'fileOptions', triggers: [{ event: 'OnFirstWindowOpen', eventId: 201, script: script.name, scriptId: script.id }] },
+    error: null, ops: [], readAt: 'now',
+  };
+  const listed = unreferenced(one).scripts.some((s) => s.id === script.id && s.target === api.meta.root);
+  assert.ok(!listed, `${script.name} is named by a file trigger, so it is referenced`);
+});
+
+test('a Replace Field Contents by Name step is a reason the field list is incomplete', () => {
+  const step = { stepID: 998, step: 'Replace Field Contents by Name', fieldName: '"Table::" & $col', replace: 'calculation' };
+  const one = structuredClone(solution);
+  const root = one.files[api.meta.root];
+  root.catalogs.script.detailById = { 1: { result: { id: 1, name: 'S', body: [step] } } };
+  const reasons = unreferenced(one).confidence.reasons;
+  assert.ok(reasons.some((r) => r.includes('Replace Field Contents by Name')),
+    'a step that writes to a field named by calculation lowers confidence in the field list');
 });

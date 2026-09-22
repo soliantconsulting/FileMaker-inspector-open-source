@@ -49,7 +49,7 @@ import { get, path } from '../access.js';
 import { fieldsOf } from '../tabs/tables.js';
 import { styleUsage } from '../tabs/themes.js';
 import { memoise } from './memo.js';
-import { nameIndex, references, strings } from './refs.js';
+import { nameIndex, references, strings, REPLACE_BY_NAME } from './refs.js';
 
 const listOf = (file, catalog) => path(file, `catalogs.${catalog}.list`) ?? [];
 const filesOf = (solution) => Object.values(get(solution, 'files') ?? {});
@@ -267,10 +267,24 @@ const CALCULATED_NAME_KEYS = new Map(['scriptName', 'layoutName', 'layoutByCalcu
 const places = (n) => (n === 1 ? '1 place' : `${n} places`);
 const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
+const detailsOf = (file) => Object.values(path(file, 'catalogs.script.detailById') ?? {})
+  .map((e) => get(e, 'result')).filter((r) => r !== undefined && r !== null);
+
 function signals(solution) {
-  const s = { evaluate: 0, getField: 0, getFieldDynamic: 0, sql: 0, calculatedName: 0, keys: new Set() };
+  const s = { evaluate: 0, getField: 0, getFieldDynamic: 0, sql: 0, calculatedName: 0, replaceByName: 0, keys: new Set() };
   const hits = (text, re) => (text.match(re) ?? []).length;
   for (const file of filesOf(solution)) {
+    // replaceByName counts enabled steps, like calculatedSetSites does, so a
+    // disabled step is not counted as writing to a field. Match on the step
+    // object, not on any string whose key folds to 'step' (which would also
+    // match script.problems[].step and double-count a flagged step).
+    for (const detail of detailsOf(file)) {
+      const body = get(detail, 'body') ?? [];
+      for (const step of body) {
+        if (get(step, 'disabled') === true) continue;
+        if (get(step, 'step') === REPLACE_BY_NAME) s.replaceByName += 1;
+      }
+    }
     // Every string of every catalog, whatever its key: a formula is not only
     // where a key list says it is.
     strings(get(file, 'catalogs'), (value, at, key) => {
@@ -335,9 +349,8 @@ function runtimePaths(solution) {
 // and never move the tier: a tier that is always lowered says nothing.
 const NOTES = [
   'Plug-in function call sites cannot be told from built-in ones (toolkit gap plugin-call-sites), so a field or script name passed to a plug-in is not counted as a reference.',
-  'fm has no file-options read (toolkit gap file-options), so the file\'s startup layout and its opening and closing scripts are invisible: an object used only there is listed here.',
   'A privilege set\'s custom access lists can name individual layouts, scripts and value lists; the reference scan does not read them, so an object reachable only through one is listed here.',
-  'fm 0.7.0 reports no style on a layout part (the register\'s part: entries name every key a part carries, and a style is not among them), so a named style worn only by a part is listed here as unused.',
+  'fm reports no style on a layout part (the register\'s part: entries name every key a part carries, and a style is not among them), so a named style worn only by a part is listed here as unused.',
 ];
 
 function confidenceOf(solution) {
@@ -346,6 +359,7 @@ function confidenceOf(solution) {
   const reasons = [...incomplete, ...runtimePaths(solution)];
   if (s.evaluate) reasons.push(`Evaluate ( ) in ${places(s.evaluate)}: it runs a calculation built at run time, which can name anything.`);
   if (s.getField) reasons.push(`GetField ( ) / GetFieldName ( ) in ${places(s.getField)} (${s.getFieldDynamic} with a non-literal argument): the field is named by text the reference scan does not follow.`);
+  if (s.replaceByName) reasons.push(`Replace Field Contents by Name in ${places(s.replaceByName)}: the step writes to a field named by calculation, so the field it changes is not a field the reference scan can name.`);
   if (s.sql) reasons.push(`ExecuteSQL ( ) with a constructed query in ${places(s.sql)}: an identifier built from variables cannot be read.`);
   if (s.calculatedName) reasons.push(`A script, layout or object named by calculation in ${places(s.calculatedName)} (${[...s.keys].sort().join(', ')}): fm reports these keys as calculation text, so the name is not a name the scan can match.`);
   const tier = incomplete.length ? 'low' : reasons.length ? 'medium' : 'high';

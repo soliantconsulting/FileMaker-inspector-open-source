@@ -435,9 +435,12 @@ const ooe = (name) => scriptIssues(solution).filter((r) => r.check === name);
 test('the ooe fixture: how many of each check, and one named example of each', () => {
   const counts = {};
   for (const row of scriptIssues(solution)) counts[row.check] = (counts[row.check] ?? 0) + 1;
+  // Re-measured after 0.8.0 re-record: embedded-credential 65→71 because the
+  // structured option keys (printOptions, exportOptions, etc.) now expose
+  // credential data the 0.7.0 shape did not carry.
   assert.deepEqual(counts, {
     'dead-set-variable': 12,
-    'embedded-credential': 65,
+    'embedded-credential': 71,
     'literal-account': 4,
     'psos-only-step': 715,
     'swallowed-error': 4,
@@ -447,7 +450,7 @@ test('the ooe fixture: how many of each check, and one named example of each', (
   // seven `Allow User Abort [Off]` steps -- four of them [Off] only by the flags
   // bit, fm reporting no `on` -- sit in scripts that do set error capture. Both
   // are covered by the hand-made bodies above.
-  assert.equal(scriptIssues(solution).length, 800);
+  assert.equal(scriptIssues(solution).length, 806);
 
   const dead = ooe('dead-set-variable')[0];
   assert.deepEqual([dead.script.name, dead.step.index, dead.detail.variable], ['Control', 7, '$some_var_with_repetitions']);
@@ -455,7 +458,8 @@ test('the ooe fixture: how many of each check, and one named example of each', (
   assert.deepEqual([credential.script.name, credential.step.step, credential.detail], ['Capture_AICaptions', 'Configure AI Account', { key: 'apiKey', where: 'apiKey', characters: 3 }]);
   const byStep = {};
   for (const row of ooe('embedded-credential')) byStep[row.step.step] = (byStep[row.step.step] ?? 0) + 1;
-  assert.deepEqual(byStep, { 'Create PDF': 56, 'Open PDF': 4, 'Append PDF': 3, 'Configure AI Account': 1, 'Print PDF': 1 });
+  // Re-measured after 0.8.0 re-record: Print PDF 1→7 (+6) because printOptions exposes credentials.
+  assert.deepEqual(byStep, { 'Create PDF': 56, 'Open PDF': 4, 'Append PDF': 3, 'Configure AI Account': 1, 'Print PDF': 7 });
   // All four are AI account references, which is why the check is named for the
   // literal it found and the detail carries the step that carried it.
   const accounts = ooe('literal-account');
@@ -487,6 +491,21 @@ test('every step on the PSoS list appears somewhere on ooe, in 22 scripts', () =
   assert.equal(new Set(rows.map((r) => r.script.name)).size, 22);
 });
 
+test('scriptIssues() does not scan fm\'s opaque round-trip blobs', async () => {
+  // scripts.js calls `strings()` three times, each walking every string fm reports.
+  // fm 0.8.0's hex-encoded print-settings blobs made scriptIssues() quadratic the
+  // same way they did references(): FIELD_RE and the Evaluate/GetField/ExecuteSQL
+  // regexes all rescan long delimiter-free runs. The walker now skips opaque values
+  // on behalf of every analysis, so this budget guards the next blob.
+  const api = createReplayApi(FIXTURE);
+  const freshSolution = await discover(api, api.meta.root);
+  const started = Date.now();
+  const issues = scriptIssues(freshSolution);
+  const ms = Date.now() - started;
+  assert.ok(ms < 5_000, `scriptIssues() took ${ms}ms; a blob is being scanned again`);
+  assert.equal(issues.length, 806);
+});
+
 test('the ooe call graph: every script a node, every naming site an edge', () => {
   const graph = callGraph(solution);
   assert.equal(graph.nodes.length, 44);
@@ -499,9 +518,13 @@ test('the ooe call graph: every script a node, every naming site an edge', () =>
 
 test('the two script references ooe does not resolve are AppleScript source, and are not edges', () => {
   const named = references(solution).filter((r) => r.kind === 'script');
-  assert.equal(named.length, 64);
+  // Re-measured after Task 5: named.length +6 (file trigger references from File Options).
+  assert.equal(named.length, 70);
   assert.deepEqual(named.filter((r) => !r.resolved).map((r) => r.from.name), ['All script steps and all options', 'All script steps and all options 20260318']);
-  assert.equal(callGraph(solution).edges.length, named.length - 2);
+  // File trigger references (from.kind === 'fileOptions') are not edges in the
+  // callGraph, which only tracks script->script, layout trigger, button, and menu calls.
+  const fileTriggerRefs = named.filter((r) => r.from.kind === 'fileOptions').length;
+  assert.equal(callGraph(solution).edges.length, named.length - 2 - fileTriggerRefs);
 });
 
 test('noop is what ooe calls: 47 edges in, three kinds of site, nothing out', () => {

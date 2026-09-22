@@ -29,7 +29,7 @@ const fieldsIn = (file) => (file.catalogs.table.list ?? [])
 test('the header names the root, the fm version and the read time', () => {
   assert.match(report, /^# Clockwork Inspector report: ooe\n/);
   assert.ok(report.includes('`fmnet://localhost/ooe`'), 'the root target');
-  assert.ok(report.includes('fm 0.7.0'), 'the fm version from solution.cli');
+  assert.ok(report.includes('fm 0.8.0-beta.0'), 'the fm version from solution.cli');
   assert.ok(report.includes(solution.readAt), 'the read time');
 });
 
@@ -37,7 +37,7 @@ test('the sections are the ones the brief names, in order, and nothing else is a
   const headings = [...report.matchAll(/^## .+$/gm)].map((m) => m[0].slice(3));
   assert.deepEqual(headings, SECTIONS);
   assert.deepEqual(SECTIONS, [
-    'Headline counts', 'Confidence', 'Security observations', 'Unreferenced',
+    'Headline counts', 'File Options', 'Confidence', 'Security observations', 'Unreferenced',
     'Script body observations', 'Calculation fields', 'Relationships',
     'Container fields', 'Broken references', 'Gaps',
   ]);
@@ -227,4 +227,34 @@ test('a solution with nothing read is still a report, with every section on it',
   const md = markdownReport(empty);
   const headings = [...md.matchAll(/^## .+$/gm)].map((m) => m[0].slice(3));
   assert.deepEqual(headings, SECTIONS);
+});
+
+test('File Options is a section with all 19 settings from FILE_OPTIONS_GROUPS, naming the startup layout and the triggers', () => {
+  assert.ok(SECTIONS.includes('File Options'));
+  assert.match(report, /^## File Options$/m);
+  // The report carries every setting from FILE_OPTIONS_GROUPS, which is exported
+  // from ui/tabs/solution.js and shared by both the page and the report.
+  const settingLabels = [
+    'Switch to a layout on open', 'Startup layout', 'Log in as', 'A password is set',
+    'Minimum FileMaker version', 'Hide all toolbars',
+    'Allow stored credentials', 'Require a device passcode', 'Show sign-in fields', 'Require authorization',
+    'Underline questionable spellings', 'Smart quotes', 'Asian line breaking (kinsoku)',
+    'Roman line breaking on word boundaries', 'Date, time and number formats',
+    'Generate thumbnails', 'Thumbnail storage',
+    'Give new tables the default fields',
+    'Icon',
+  ];
+  for (const label of settingLabels) {
+    assert.ok(report.includes(label), `setting "${label}" is in the report`);
+  }
+  assert.ok(report.includes('File Open'), 'the startup layout');
+  assert.ok(report.includes('OnFirstWindowOpen'), 'a file script trigger');
+  // A boolean reads the way the page reads it, not as `true`.
+  assert.ok(!/\| true \|/.test(report));
+});
+
+test('a file whose fm has no file-options catalog says so in the report', () => {
+  const broken = structuredClone(solution);
+  broken.files[api.meta.root].fileOptions = { block: null, error: { code: 'unknown_catalog', message: 'no such catalog' }, ops: [], readAt: null };
+  assert.ok(markdownReport(broken).includes('unknown_catalog'));
 });
