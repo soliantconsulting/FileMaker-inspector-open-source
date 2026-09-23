@@ -49,6 +49,10 @@ export const FILE_OPTIONS_GROUPS = [
     ['Require authorization', 'requireAuthorization'],
   ]],
   ['Spelling and text', [
+    // fm 0.8.0 GA reports this for the first time -- 0.8.0-beta.0's own help called
+    // spell-check-as-you-type "not reported and not writable yet". It is an enum
+    // ("off" on both fixture files), not a boolean, so it renders as its word.
+    ['Spell-check as you type', 'spellAsYouType'],
     ['Underline questionable spellings', 'underlineMisspellings'],
     ['Smart quotes', 'smartQuotes'],
     ['Asian line breaking (kinsoku)', 'asianLineBreaking'],

@@ -236,12 +236,156 @@ function renderList(solution, view) {
   return section('Layouts', totals(solution) + body, { actions: catalogActions(solution, 'layout', view, 'layouts') });
 }
 
+// Layout Setup, which fm 0.8.0 GA reports as named keys where 0.8.0-beta.0 and
+// earlier gave a packed options word this tab could not decode. Grouped and labelled
+// the way FileMaker's own Layout Setup dialog groups them, not the way fm spells the
+// keys: a reader looking for "save record changes automatically" is looking for the
+// checkbox they know.
+//
+// Each group is [heading, path, booleans, values]. `booleans` render as badges, only
+// the ones that are ON, because twenty-four yes/no rows is a wall a reader does not
+// read; the ones that are OFF ride in the title so they stay discoverable. `values`
+// render as rows, because a grid colour or a row height is not a flag.
+const LAYOUT_BOOLEANS = [
+  ['quickFind', 'quick find'],
+  ['saveRecordChangesAutomatically', 'save record changes automatically'],
+  ['showCurrentRecordIndicator', 'current record indicator'],
+  ['delineateCurrentRecordOnly', 'delineate current record only'],
+  ['showFieldAlerts', 'field alerts'],
+  ['showFieldFramesWhenActive', 'field frames when active'],
+  ['textRuler', 'text ruler'],
+  ['verticalPartLabels', 'vertical part labels'],
+];
+const TABLE_VIEW_BOOLEANS = [
+  ['columnHeaders', 'column headers'], ['resizableColumns', 'resizable columns'],
+  ['reorderableColumns', 'reorderable columns'], ['customColumnOrder', 'custom column order'],
+  ['sortOnSelect', 'sort on select'], ['rowNumbers', 'row numbers'],
+  ['horizontalGrid', 'horizontal grid'], ['verticalGrid', 'vertical grid'],
+  ['alternatingRowColors', 'alternating row colours'], ['comfortableFormatting', 'comfortable formatting'],
+  ['systemAppearance', 'system appearance'], ['includeHeader', 'include header'],
+  ['includeFooter', 'include footer'], ['includeTopNav', 'include top nav'],
+  ['includeBottomNav', 'include bottom nav'],
+];
+
+const yesNo = (v) => (v === true ? 'yes' : 'no');
+
+/** One group: the badges for what is on, then a row per value fm reported. Returns ''
+ *  when fm reported nothing in the group, so a layout that has no table view does not
+ *  grow an empty "Table view" heading. */
+function propertyGroup(heading, source, booleans, values) {
+  if (source === undefined || source === null) return '';
+  const present = booleans.filter(([key]) => get(source, key) !== undefined);
+  const rows = values.filter(([, , read]) => read(source) !== undefined && read(source) !== null);
+  if (!present.length && !rows.length) return '';
+  const on = present.filter(([key]) => get(source, key) === true).map(([, label]) => badge(label, 'info'));
+  const title = present.map(([key, label]) => `${label}: ${yesNo(get(source, key))}`).join(', ');
+  const badgeLine = present.length
+    ? `<p${title ? ` title="${esc(title)}"` : ''}>${on.length ? on.join(' ') : '<span class="muted">none set</span>'}</p>`
+    : '';
+  const kv = rows.length
+    ? `<dl class="kv">${rows.map(([, label, read]) => `<dt>${esc(label)}</dt><dd>${read(source)}</dd>`).join('')}</dl>`
+    : '';
+  return `<h4>${esc(heading)}</h4>${badgeLine}${kv}`;
+}
+
+/** The Properties section, omitted entirely when fm reports none of Layout Setup --
+ *  an empty section header is a promise of content the read cannot keep. */
+function propertiesSection(detail) {
+  const html = layoutProperties(detail);
+  return html ? `<h3>Properties</h3>${html}` : '';
+}
+
+/** Layout Setup as fm now reports it. Pure: returns '' when there is nothing to say. */
+export function layoutProperties(detail) {
+  const grid = (tv) => {
+    const style = get(tv, 'gridStyle');
+    const colour = get(tv, 'gridColor');
+    if (style === undefined && colour === undefined) return undefined;
+    return [style, colour].filter((x) => x !== undefined && x !== null).map((x) => esc(String(x))).join(' &middot; ');
+  };
+  const columns = (pr) => {
+    const c = get(pr, 'columns');
+    if (c === undefined || c === null) return undefined;
+    const count = get(c, 'count');
+    const width = get(c, 'width');
+    return `${esc(String(count))} columns${width === undefined ? '' : ` &middot; ${esc(String(width))} wide`}`;
+  };
+  const margins = (pr) => {
+    const m = get(pr, 'pageMargins');
+    if (m === undefined || m === null) return undefined;
+    return ['left', 'top', 'right', 'bottom'].map((s) => esc(String(get(m, s) ?? ''))).join(' / ');
+  };
+  const groups = [
+    propertyGroup('General', detail, LAYOUT_BOOLEANS, []),
+    propertyGroup('Table view', get(detail, 'tableView'), TABLE_VIEW_BOOLEANS, [
+      ['grid', 'Grid', grid],
+      ['rowHeight', 'Row height', (tv) => { const h = get(tv, 'rowHeight'); return h === undefined ? undefined : esc(String(h)); }],
+    ]),
+    propertyGroup('Printing', get(detail, 'printing'), [['facingPages', 'facing pages']], [
+      ['flowOrder', 'Flow order', (pr) => { const f = get(pr, 'flowOrder'); return f === undefined ? undefined : esc(String(f)); }],
+      ['columns', 'Columns', columns],
+      ['pageMargins', 'Margins (l/t/r/b)', margins],
+    ]),
+  ];
+  return groups.filter(Boolean).join('');
+}
+
+// The Part Definition dialog, which fm 0.8.0 reports for the first time as
+// `parts[].pagination` and, on the body, `parts[].rowState`. Each entry is
+// [key, label]. `breakAfterEvery` is deliberately not in this list: it is the one
+// member that is not a boolean -- fm reports null when it is not set and a count when
+// it is -- so it renders its value rather than its presence.
+const PAGINATION_OPTIONS = [
+  ['breakBefore', 'break before'],
+  ['restartPageNumbers', 'restart page numbers'],
+  ['allowBreakAcrossPages', 'allow break across pages'],
+  ['discardRemainder', 'discard remainder'],
+];
+const ROW_STATE_OPTIONS = [['useAlternate', 'alternate rows'], ['useActive', 'active row']];
+
+/** What a part's Part Definition dialog has switched on, as badges.
+ *
+ *  Three states a reader has to tell apart, because fm reports all three and they
+ *  mean different things:
+ *
+ *    no `pagination` object   this part TYPE has no Part Definition options at all.
+ *                             Measured on ooe: topNavigation, bottomNavigation and
+ *                             titleFooter carry none, a header carries
+ *                             restartPageNumbers alone, a body carries all five.
+ *    present, nothing on      the part has the options and none of them is set.
+ *    present, some on         one badge per option that is on.
+ *
+ *  Rendering the first two alike would say "nothing is set here" about a part that
+ *  cannot have anything set -- the same lie the Solution tab's `field` row exists to
+ *  avoid. The title carries every member fm reported with its value, so an option
+ *  that is OFF stays discoverable on hover instead of being merely absent. */
+export function partDefinition(part) {
+  const pagination = get(part, 'pagination');
+  const rowState = get(part, 'rowState');
+  if (pagination === undefined && rowState === undefined) {
+    const type = String(get(part, 'type') ?? 'part');
+    return `<span class="muted" title="${esc(`fm reports no Part Definition options for a ${type} part`)}">n/a</span>`;
+  }
+  const badges = [];
+  for (const [key, label] of PAGINATION_OPTIONS) if (get(pagination, key) === true) badges.push(badge(label, 'info'));
+  const every = get(pagination, 'breakAfterEvery');
+  if (every !== undefined && every !== null && every !== false) badges.push(badge(`break after every ${every}`, 'info'));
+  for (const [key, label] of ROW_STATE_OPTIONS) if (get(rowState, key) === true) badges.push(badge(label, 'info'));
+  const reported = [...Object.entries(pagination ?? {}), ...Object.entries(rowState ?? {})]
+    .map(([k, v]) => `${k}: ${v === null ? 'not set' : v}`).join(', ');
+  const title = reported ? ` title="${esc(reported)}"` : '';
+  return badges.length
+    ? `<span${title}>${badges.join(' ')}</span>`
+    : `<span class="muted"${title}>none set</span>`;
+}
+
 const PART_COLUMNS = [
   { key: 'type', label: 'Part' },
   { key: 'name', label: 'Name' },
   { key: 'height', label: 'Height', num: true, render: (r) => count(r.height) },
   { key: 'offset', label: 'Offset', num: true, render: (r) => count(r.offset) },
   { key: 'breakField', label: 'Break field' },
+  { key: 'partDefinition', label: 'Part Definition', render: (r) => r.partDefinition },
 ];
 
 function partRows(detail) {
@@ -249,6 +393,7 @@ function partRows(detail) {
     type: String(get(p, 'type') ?? ''), name: String(get(p, 'name') ?? ''),
     height: num(get(p, 'height')), offset: num(get(p, 'offset')),
     breakField: String(path(p, 'breakField.name') ?? ''),
+    partDefinition: partDefinition(p),
   }));
 }
 
@@ -336,6 +481,7 @@ function renderSelected(solution, view) {
   const rows = objectRows(detail, key).filter((r) => matches(r.type, view.filter) || matches(r.what, view.filter)
     || matches(r.control, view.filter) || matches(r.style, view.filter));
   const body = kv(detailPairs(detail, counts))
+    + propertiesSection(detail)
     + '<h3>Parts</h3>' + table(PART_COLUMNS, partRows(detail), { empty: 'No parts' })
     + '<h3>Wireframe</h3>'
     + `<div class="wireframe-wrap">${wireframeSvg(detail, { highlight: sel.object, key })}</div>`

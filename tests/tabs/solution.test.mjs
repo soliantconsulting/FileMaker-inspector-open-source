@@ -133,3 +133,13 @@ test('the File Options panel has no row in the catalog-counts table', () => {
   assert.ok(!html.includes('data-reread-catalog="fileOptions"><td'), 'not a row');
   assert.ok(html.includes('data-reread-catalog="fileOptions"'), 'but it does have a re-read button');
 });
+
+test('the File Options panel carries spell-check as you type, which fm 0.8.0 GA added', () => {
+  // 0.8.0-beta.0's help called this one "not reported and not writable yet"; GA
+  // reports it. An enum, not a boolean -- "off" on both fixture files, measured.
+  const block = solution.files[api.meta.root].fileOptions.block;
+  assert.equal(block.spellAsYouType, 'off');
+  const html = tab.render(solution);
+  assert.ok(html.includes('<dt>Spell-check as you type</dt>'));
+  assert.match(html, /<dt>Spell-check as you type<\/dt><dd>off<\/dd>/);
+});
