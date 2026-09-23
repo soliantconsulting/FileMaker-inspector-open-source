@@ -37,7 +37,18 @@ test('accountRows: 13 accounts on the root file, each with the fields the brief 
   assert.equal(guest.enabled, false);
 });
 
-test('no account on the root file is password-less, and 2 are disabled', () => {
+// KNOWN fm 0.8.0 REGRESSION, 2026-09-23: the three tests below are marked `todo`.
+// They assert the truth -- no fileMakerUser account of ooe is password-less -- and fm
+// 0.8.0 (29834929) disagrees, reporting `hasPassword: false` for the `dev` account
+// (id 14, [Full Access], disabled) where 0.8.0-beta.0 (29827611) reported true. The
+// owner confirms dev DOES have a password, so GA is misreporting it. Verified against
+// the live file, not just the recording, so it is not a recording artefact.
+//
+// They are `todo` rather than re-baselined on purpose: changing 7 to 8 would encode
+// "a full-access account has no password" into the suite as expected truth, which is a
+// false security claim about a real solution. See docs/fm-0.8.0-regressions.md.
+// Remove the `todo` markers when a later fm build reports dev correctly again.
+test('no account on the root file is password-less, and 2 are disabled', { todo: 'fm 0.8.0 misreports dev.hasPassword; see docs/fm-0.8.0-regressions.md' }, () => {
   // fm reports `hasPassword: false` on the 7 externally authenticated accounts of
   // ooe, because a FileMaker-managed password is not a thing they have -- the
   // inventory's blank_password is `hasPassword === false && userType ===
@@ -58,7 +69,7 @@ test('passwordState: only a fileMakerUser can be password-less; any other userTy
   assert.equal(passwordState({ userType: '', hasPassword: false }), 'none');
 });
 
-test('the Password column reads none only under that rule, external otherwise', () => {
+test('the Password column reads none only under that rule, external otherwise', { todo: 'fm 0.8.0 misreports dev.hasPassword, so a none badge renders; see docs/fm-0.8.0-regressions.md' }, () => {
   const html = tab.render(solution, view);
   assert.ok(html.includes('<span class="badge muted">external</span>'));
   assert.ok(!html.includes('<span class="badge warn">none</span>'));
@@ -172,7 +183,7 @@ test('authorizationRows: 5 authorizations on the root file', () => {
   assert.equal(inbound.hasToken, false);
 });
 
-test('securityTotals sums accounts, privilege sets and extended privileges across every reached file', () => {
+test('securityTotals sums accounts, privilege sets and extended privileges across every reached file', { todo: 'fm 0.8.0 misreports dev.hasPassword, so noPassword is 1 not 0; see docs/fm-0.8.0-regressions.md' }, () => {
   const t = securityTotals(solution);
   const accounts = accountRows(root).length + accountRows(brojDva).length;
   const privilegeSets = privilegeSetRows(root).length + privilegeSetRows(brojDva).length;

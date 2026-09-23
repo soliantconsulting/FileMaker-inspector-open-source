@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { createReplayApi } from '../replay-api.mjs';
 import { discover } from '../../ui/discovery.js';
-import { tab, walkObjects, objectCounts, layoutRows, wireframeSvg, selectionOf } from '../../ui/tabs/layouts.js';
+import { tab, walkObjects, objectCounts, layoutRows, wireframeSvg, selectionOf, partDefinition, layoutProperties } from '../../ui/tabs/layouts.js';
 
 const FIXTURE = fileURLToPath(new URL('../fixtures/ooe/', import.meta.url));
 const api = createReplayApi(FIXTURE);
@@ -279,4 +279,115 @@ test('layoutRows is memoised per file until a re-read replaces the layout slot',
 
   root.catalogs.layout = slot;
   assert.deepEqual(layoutRows(root).map((r) => r.name), first.map((r) => r.name));
+});
+
+// ── The Part Definition dialog, which fm 0.8.0 reports for the first time ──
+
+test('partDefinition tells apart a part type with no options, one with none set, and one with some', () => {
+  // Three states, and fm distinguishes all three -- so the column must too.
+  // Measured on ooe: topNavigation, bottomNavigation and titleFooter carry no
+  // `pagination` object at all, while body carries all five members plus rowState.
+  assert.match(partDefinition({ type: 'topNavigation' }), /n\/a/,
+    'a part type fm reports no pagination object for is not the same as one with nothing set');
+  const noneSet = partDefinition({ type: 'header', pagination: { restartPageNumbers: false } });
+  assert.match(noneSet, /none set/);
+  assert.doesNotMatch(noneSet, /n\/a/);
+  const someSet = partDefinition({ type: 'body', pagination: { breakBefore: true, restartPageNumbers: false } });
+  assert.match(someSet, /break before/);
+  assert.doesNotMatch(someSet, /restart page numbers<\/span>/, 'an option that is off is not badged');
+});
+
+test('partDefinition renders breakAfterEvery as the count it is, not as a flag', () => {
+  // fm reports null when it is not set and a number when it is -- the one member of
+  // the dialog that is not a boolean.
+  assert.doesNotMatch(partDefinition({ type: 'body', pagination: { breakAfterEvery: null } }), /break after/);
+  assert.match(partDefinition({ type: 'body', pagination: { breakAfterEvery: 3 } }), /break after every 3/);
+});
+
+test('partDefinition badges the body row state, the one option set anywhere on ooe', () => {
+  const body = (root.catalogs.layout.detailById['1'].result.parts ?? []).find((p) => p.type === 'body');
+  assert.ok(body, 'the fixture layout has a body part');
+  assert.equal(body.rowState.useActive, true, 'measured: the only Part Definition option set on ooe');
+  assert.equal(body.rowState.useAlternate, false);
+  const html = partDefinition(body);
+  assert.match(html, /active row/);
+  assert.doesNotMatch(html, /alternate rows/);
+});
+
+test('every Part Definition value the fixture carries is escaped and reported on hover', () => {
+  const html = partDefinition({ type: 'body', pagination: { breakAfterEvery: '<img src=x>' } });
+  assert.ok(!html.includes('<img src=x'), 'a hostile value cannot inject markup');
+  // The title carries every member fm reported, so an option that is OFF is
+  // discoverable rather than merely absent from the badges.
+  const withOff = partDefinition({ type: 'body', pagination: { breakBefore: false, discardRemainder: true } });
+  assert.match(withOff, /title="[^"]*breakBefore: false[^"]*"/);
+});
+
+test('the Parts table carries a Part Definition column', () => {
+  const html = tab.render(solution, { ...view, selection: `${api.meta.root}|1` });
+  assert.match(html, /<th[^>]*>Part Definition<\/th>/);
+});
+
+// ── Layout properties: the named keys GA put in place of the packed options word ──
+
+test('layoutProperties groups the options the way FileMaker Layout Setup groups them', () => {
+  const html = layoutProperties(MY_LAYOUT);
+  for (const heading of ['General', 'Table view', 'Printing']) {
+    assert.ok(html.includes(`<h4>${heading}</h4>`), `no ${heading} group`);
+  }
+});
+
+test('layoutProperties badges only the options that are on, and keeps the rest on hover', () => {
+  // Measured on the fixture layout: quickFind is on, textRuler is off.
+  assert.equal(MY_LAYOUT.quickFind, true);
+  assert.equal(MY_LAYOUT.textRuler, false);
+  const html = layoutProperties(MY_LAYOUT);
+  assert.match(html, /<span class="badge info">quick find<\/span>/);
+  assert.doesNotMatch(html, /<span class="badge info">text ruler<\/span>/);
+  // An option that is off is discoverable rather than absent.
+  assert.match(html, /title="[^"]*text ruler: no[^"]*"/);
+});
+
+test('layoutProperties renders the non-boolean options as values, not as flags', () => {
+  const html = layoutProperties(MY_LAYOUT);
+  assert.match(html, /<dt>Grid<\/dt>/);
+  assert.ok(html.includes('solid'), 'gridStyle is a word, not a flag');
+  assert.ok(html.includes('#808080'), 'gridColor is a colour');
+  // Row height is NOT on this layout, and must not be invented: fm reports
+  // tableView.rowHeight only on a layout using a custom one, the same way it reports
+  // printing.columns only on a layout that prints in columns. Measured on the fixture.
+  assert.equal(MY_LAYOUT.tableView.rowHeight, undefined);
+  assert.doesNotMatch(html, /<dt>Row height<\/dt>/);
+  assert.match(layoutProperties({ tableView: { rowHeight: 30 } }), /<dt>Row height<\/dt>/);
+});
+
+test('layoutProperties shows print columns and margins only when fm reports them', () => {
+  const withCols = layoutProperties({ printing: { columns: { count: 2, width: 286 } } });
+  assert.match(withCols, /2 columns/);
+  assert.match(withCols, /286/);
+  // fm reports `columns` only on a layout that prints in columns, so a layout
+  // without it must not render an empty or zeroed row.
+  const without = layoutProperties({ printing: { flowOrder: 'acrossFirst' } });
+  assert.doesNotMatch(without, /columns/i);
+  const margins = layoutProperties({ printing: { pageMargins: { left: 20, top: 21, right: 22, bottom: 23 } } });
+  assert.match(margins, /20/); assert.match(margins, /23/);
+});
+
+test('layoutProperties omits a group fm reports nothing for, rather than rendering it empty', () => {
+  const bare = layoutProperties({ quickFind: true });
+  assert.ok(bare.includes('<h4>General</h4>'));
+  assert.ok(!bare.includes('<h4>Table view</h4>'), 'no tableView key means no Table view group');
+  assert.ok(!bare.includes('<h4>Printing</h4>'));
+  // A layout fm reports none of these for renders nothing at all.
+  assert.equal(layoutProperties({}), '');
+});
+
+test('every layout property value is escaped', () => {
+  const html = layoutProperties({ tableView: { gridColor: '<img src=x onerror=alert(1)>', gridStyle: 'solid' } });
+  assert.ok(!html.includes('<img src=x'));
+});
+
+test('the selected layout renders a Properties section', () => {
+  const html = tab.render(solution, { ...view, selection: `${api.meta.root}|1` });
+  assert.match(html, /<h3>Properties<\/h3>/);
 });
