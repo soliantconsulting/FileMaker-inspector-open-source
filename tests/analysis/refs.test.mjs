@@ -132,11 +132,16 @@ test('the reference counts by kind on the fixture', () => {
   // run `noop`; BrojDva's triggers are all empty so emit() drops them).
   // Re-measured after Task 5b: occurrence +1 (targetTable names the import's
   // target occurrence in the fixture's one Import Records step).
+  // Re-measured 2026-09-23 against fm 0.8.0 GA (29834929): field +3 and total +3, all
+  // three from a portal, whose sort and filter GA reports for the first time. Two are
+  // `sort.fields[].field` (how: named -- `field` was already in FIELD_KEYS) and one is
+  // a field inside `filter` (how: text -- the tokeniser, `filter` being in no name
+  // list). refs.js needed no change for any of them.
   assert.deepEqual(byKind, {
-    variable: 1257, field: 933, occurrence: 315, script: 70, table: 35,
+    variable: 1257, field: 936, occurrence: 315, script: 70, table: 35,
     layout: 18, valueList: 14, style: 7, customFunction: 3,
   });
-  assert.equal(rows.length, 2652);
+  assert.equal(rows.length, 2655);
 });
 
 test('the reference counts by how, and by the kind of object doing the naming', () => {
@@ -147,10 +152,13 @@ test('the reference counts by how, and by the kind of object doing the naming', 
   // and trigger scripts under keys fm documents), fileOptions +8 (new source).
   // Re-measured after Task 5b: named +2 (orderBy was tokenized as text, now named;
   // targetTable is new), text -1 (orderBy moved from text to named).
-  assert.deepEqual(tally((r) => r.how), { text: 1633, named: 1019 });
+  // 2026-09-23: GA's two portal sort fields are `named`, its one filter field `text`.
+  assert.deepEqual(tally((r) => r.how), { text: 1634, named: 1021 });
   // Re-measured after Task 5b: script +1 (targetTable is a step option of Import Records).
   assert.deepEqual(tally((r) => r.from.kind), {
-    script: 1977, layoutObject: 401, field: 119, layout: 51, relation: 42,
+    // 2026-09-23: layoutObject +3 -- a portal is a layout object, and the sort and
+    // filter references are named from it.
+    script: 1977, layoutObject: 404, field: 119, layout: 51, relation: 42,
     tableOccurrence: 27, valueList: 17, fileOptions: 8, customMenu: 8, customFunction: 2,
   });
 });

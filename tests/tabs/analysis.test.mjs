@@ -286,7 +286,8 @@ test("the Broken table's Where header says fm's /N paths are fm's own JSON point
   // to the sentence: fm's pointer on a problem row, our key path on the rest.
   // Key paths use dot notation (body.N.key) to match refs.js, not [N] notation.
   assert.ok(section.includes('<td>/4</td>'), "fm's own pointer rides through unread");
-  assert.ok(section.includes('<td>body.84.value</td>'), 'and a marker carries the key path');
+  // 2026-09-23: fm 0.8.0 GA moved an unrenderable calculation from `value` to
+  assert.ok(section.includes('<td>body.84.valueApproximate</td>'), 'and a marker carries the key path');
 });
 
 test('a check heading is its id de-kebabbed, with the id itself in the title', () => {

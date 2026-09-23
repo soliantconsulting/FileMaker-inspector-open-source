@@ -543,3 +543,28 @@ test('a Replace Field Contents by Name step is a reason the field list is incomp
   assert.ok(reasons.some((r) => r.includes('Replace Field Contents by Name')),
     'a step that writes to a field named by calculation lowers confidence in the field list');
 });
+
+test('a calculated name fm could only render approximately is still counted', () => {
+  // fm 0.8.0 moved a calculation it cannot render exactly out of the plain key and
+  // into a `…Approximate` one: `layoutNameApproximate` carrying `/*<Function
+  // Missing>*/` where 0.8.0-beta.0 put that text in `layoutName`. Measured on the
+  // fixture, that rename silently dropped the calculated-name count from 63 to 62 --
+  // the tool stopped reporting a site it had been reporting, which is worse than
+  // reporting it as uncertain. An approximate name is MORE uncertain, not less.
+  const base = (key) => {
+    const one = structuredClone(solution);
+    // Every file's scripts are cleared, not just the root's: the other file
+    // contributes a scriptName of its own, and this test is about one key.
+    for (const f of Object.values(one.files)) f.catalogs.script.detailById = {};
+    one.files[api.meta.root].catalogs.script.detailById = {
+      1: { result: { id: 1, name: 'S', body: [{ stepID: 6, step: 'Go to Layout', [key]: '/*<Function Missing>*/' }] } },
+    };
+    return unreferenced(one).confidence.reasons.find((r) => r.includes('named by calculation')) ?? '';
+  };
+  // The plain key and the Approximate variant must both be counted, and both must
+  // attribute to the base key name so the reason reads the same either way.
+  assert.match(base('layoutName'), /in 1 place \(layoutName\)/);
+  assert.match(base('layoutNameApproximate'), /in 1 place \(layoutName\)/);
+  // A key that merely ends in the word is not a calculated name.
+  assert.equal(base('notAKeyApproximate'), '');
+});

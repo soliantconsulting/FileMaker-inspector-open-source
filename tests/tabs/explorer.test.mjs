@@ -347,7 +347,8 @@ test('every reference in the solution is reachable from some selectable object',
       : `${r.from.kind}|${r.from.target}|${id}`;
   };
   const all = references(solution);
-  assert.equal(all.length, 2652); // Re-measured after 0.8.0 re-record: new field refs from structured options; Task 5: +8 (File Options references); Task 5b: +1 (targetTable)
+  // 2026-09-23: 2652 -> 2655, the three portal sort/filter references fm 0.8.0 GA added.
+  assert.equal(all.length, 2655); // Re-measured after 0.8.0 re-record: new field refs from structured options; Task 5: +8 (File Options references); Task 5b: +1 (targetTable)
   // Task 5: File Options is now a reference source but is not yet selectable in
   // the Explorer, so its 8 references (2 layouts + 6 scripts) are not covered.
   const fileOptionsRefs = all.filter((r) => r.from.kind === 'fileOptions');

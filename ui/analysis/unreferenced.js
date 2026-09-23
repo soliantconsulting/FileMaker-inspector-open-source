@@ -264,6 +264,21 @@ const SQL_LITERAL_ARG = /^\s*"(?:\\.|[^"\\])*"\s*[;)]/;
 // named path whatever the scan does.
 const CALCULATED_NAME_KEYS = new Map(['scriptName', 'layoutName', 'layoutByCalculation', 'objectName', 'fileName'].map((k) => [foldKey(k), k]));
 
+// fm 0.8.0 reports a calculation it could not render exactly under a `…Approximate`
+// key instead of the plain one: `layoutNameApproximate` carrying `/*<Function
+// Missing>*/` where 0.8.0-beta.0 put that same text in `layoutName`. The suffix is fm
+// being precise about provenance, and it does not make the value a different KIND of
+// name -- a layout named by a calculation fm cannot even render is MORE uncertain, not
+// less, so it belongs in this count more than an ordinary one does.
+//
+// Stripped before the lookup rather than added to the list, so any future
+// `…Approximate` variant of a calculated-name key is counted without another edit.
+// Measured on the fixture: without this the calculated-name count fell 63 -> 62 when
+// one `layoutName` became `layoutNameApproximate` -- a site the tool silently stopped
+// reporting, which is the failure this guards.
+const APPROXIMATE_SUFFIX = /Approximate$/;
+const calculatedNameKey = (key) => CALCULATED_NAME_KEYS.get(foldKey(String(key).replace(APPROXIMATE_SUFFIX, '')));
+
 const places = (n) => (n === 1 ? '1 place' : `${n} places`);
 const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
@@ -288,7 +303,7 @@ function signals(solution) {
     // Every string of every catalog, whatever its key: a formula is not only
     // where a key list says it is.
     strings(get(file, 'catalogs'), (value, at, key) => {
-      const calculated = CALCULATED_NAME_KEYS.get(foldKey(key));
+      const calculated = calculatedNameKey(key);
       if (calculated) { s.calculatedName += 1; s.keys.add(calculated); }
       s.evaluate += hits(value, EVALUATE);
       s.getField += hits(value, GET_FIELD);

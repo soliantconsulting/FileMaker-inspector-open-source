@@ -123,10 +123,15 @@ test('the fixture carries four <Function Missing> markers, measured, and no <Fie
   assert.equal(rows.length, 4);
   const by = rows.map((r) => `${r.from.name}|${r.from.where}`).sort();
   assert.deepEqual(by, [
-    'All script steps and all options 20260318|body.118.value',
-    'All script steps and all options|body.124.layoutName',
-    'All script steps and all options|body.159.record',
-    'All script steps and all options|body.84.value',
+  // Re-measured 2026-09-23 against fm 0.8.0 GA: the same four <Function Missing>
+  // markers on the same four steps, but GA reports a calculation it cannot render
+  // exactly under a `...Approximate` key rather than the plain one -- body[84] is a
+  // Set Variable whose `valueApproximate` is `/*<Function Missing>( 2 ) + 4*/`, with
+  // no `value` key at all. Only the key path moved; the finding did not.
+    'All script steps and all options 20260318|body.118.valueApproximate',
+    'All script steps and all options|body.124.layoutNameApproximate',
+    'All script steps and all options|body.159.recordApproximate',
+    'All script steps and all options|body.84.valueApproximate',
   ]);
 });
 
@@ -272,10 +277,10 @@ test('a marker on a script step is spelled the way refs.js spells the same place
   for (const m of markers) assert.match(m.from.where, /^body\.\d+\./, m.from.where);
   // Not merely the same shape: on at least one step both analyses found
   // something, and they name that step identically. (Not every marker step has
-  // a reference -- `body.124.layoutName` on ooe is calculation text whose only
+  // a reference -- `body.124.layoutNameApproximate` on ooe is calculation text whose only
   // token is the missing function itself, so refs.js finds no name there.)
   const shared = markers.filter((m) => {
-    // Extract the step prefix (e.g., "body.84" from "body.84.value").
+    // Extract the step prefix (e.g., "body.84" from "body.84.valueApproximate").
     const match = m.from.where.match(/^body\.\d+/);
     if (!match) return false;
     const prefix = match[0];
